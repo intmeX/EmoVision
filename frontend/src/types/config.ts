@@ -1,0 +1,88 @@
+// 配置相关类型
+
+export type ModelSize = 'n' | 's' | 'm' | 'l' | 'x';
+
+export interface DetectorConfig {
+  model_size: ModelSize;
+  confidence_threshold: number;
+  iou_threshold: number;
+  detect_face: boolean;
+  detect_person: boolean;
+  max_detections: number;
+}
+
+export interface RecognizerConfig {
+  model_path: string | null;
+  emotion_labels: string[];
+  batch_size: number;
+  use_face: boolean;
+  use_body: boolean;
+}
+
+export interface VisualizerConfig {
+  show_bounding_box: boolean;
+  show_emotion_label: boolean;
+  show_confidence: boolean;
+  show_emotion_bar: boolean;
+  box_color_by_emotion: boolean;
+  font_scale: number;
+  box_thickness: number;
+  emotion_colors: Record<string, string>;
+}
+
+export interface PerformanceConfig {
+  target_fps: number;
+  skip_frames: number;
+  async_inference: boolean;
+  output_quality: number;
+}
+
+export interface PipelineConfig {
+  detector: DetectorConfig;
+  recognizer: RecognizerConfig;
+  visualizer: VisualizerConfig;
+  performance: PerformanceConfig;
+}
+
+// 默认配置
+export const DEFAULT_CONFIG: PipelineConfig = {
+  detector: {
+    model_size: 'n',
+    confidence_threshold: 0.5,
+    iou_threshold: 0.45,
+    detect_face: true,
+    detect_person: true,
+    max_detections: 100,
+  },
+  recognizer: {
+    model_path: null,
+    emotion_labels: ['happy', 'sad', 'angry', 'fear', 'surprise', 'disgust', 'neutral'],
+    batch_size: 8,
+    use_face: true,
+    use_body: true,
+  },
+  visualizer: {
+    show_bounding_box: true,
+    show_emotion_label: true,
+    show_confidence: true,
+    show_emotion_bar: true,
+    box_color_by_emotion: true,
+    font_scale: 0.8,
+    box_thickness: 2,
+    emotion_colors: {
+      happy: '#22c55e',
+      sad: '#3b82f6',
+      angry: '#ef4444',
+      fear: '#a855f7',
+      surprise: '#f59e0b',
+      disgust: '#84cc16',
+      neutral: '#6b7280',
+    },
+  },
+  performance: {
+    target_fps: 30,
+    skip_frames: 0,
+    async_inference: true,
+    output_quality: 80,
+  },
+};

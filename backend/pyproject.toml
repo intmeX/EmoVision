@@ -1,0 +1,20 @@
+[project]
+name = "emovision-backend"
+version = "0.1.0"
+description = "EmoVision 视觉情绪识别后端服务"
+requires-python = ">=3.10"
+authors = [
+    {name = "EmoVision Team"}
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]

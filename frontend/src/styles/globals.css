@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 自定义基础样式 */
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  body {
+    @apply bg-bg-primary text-gray-100 antialiased;
+  }
+  
+  /* 滚动条样式 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-secondary;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border-secondary rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+/* 组件样式 */
+@layer components {
+  /* 卡片 */
+  .card {
+    @apply bg-bg-secondary border border-border-primary rounded-lg p-4;
+  }
+  
+  /* 按钮 */
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium transition-colors duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-bg-primary;
+  }
+  
+  .btn-primary {
+    @apply btn bg-accent-primary hover:bg-blue-600 text-white;
+    @apply focus:ring-accent-primary;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-bg-tertiary hover:bg-bg-elevated text-gray-200;
+    @apply border border-border-primary focus:ring-gray-500;
+  }
+  
+  .btn-danger {
+    @apply btn bg-accent-danger hover:bg-red-600 text-white;
+    @apply focus:ring-accent-danger;
+  }
+  
+  .btn-success {
+    @apply btn bg-accent-success hover:bg-green-600 text-white;
+    @apply focus:ring-accent-success;
+  }
+  
+  .btn-icon {
+    @apply p-2 rounded-md transition-colors duration-200;
+    @apply hover:bg-bg-tertiary focus:outline-none focus:ring-2;
+  }
+  
+  /* 输入框 */
+  .input {
+    @apply w-full px-3 py-2 rounded-md bg-bg-tertiary;
+    @apply border border-border-primary text-gray-100;
+    @apply placeholder:text-gray-500;
+    @apply focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary;
+  }
+  
+  /* 标签 */
+  .label {
+    @apply block text-sm font-medium text-gray-300 mb-1;
+  }
+  
+  /* 状态指示器 */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+  
+  .status-dot-success {
+    @apply status-dot bg-accent-success animate-pulse;
+  }
+  
+  .status-dot-warning {
+    @apply status-dot bg-accent-warning;
+  }
+  
+  .status-dot-danger {
+    @apply status-dot bg-accent-danger;
+  }
+  
+  .status-dot-idle {
+    @apply status-dot bg-gray-500;
+  }
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
