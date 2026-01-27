@@ -123,7 +123,7 @@ class YOLODetector(BaseDetector):
                         if self._config.detect_person:
                             detection = Detection(
                                 id=self._next_id(),
-                                ob_type=DetectionType.PERSON,
+                                type=DetectionType.PERSON,
                                 bbox=bbox,
                                 confidence=conf
                             )
@@ -133,7 +133,7 @@ class YOLODetector(BaseDetector):
                         if self._config.detect_face:
                             detection = Detection(
                                 id=self._next_id(),
-                                ob_type=DetectionType.FACE,
+                                type=DetectionType.FACE,
                                 bbox=bbox,
                                 confidence=conf
                             )

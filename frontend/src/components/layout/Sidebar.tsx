@@ -1,6 +1,6 @@
 // 侧边栏组件
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Play,
   Pause,
@@ -13,15 +13,22 @@ import {
   ChevronDown,
   ChevronUp,
   Folder,
+  X,
 } from 'lucide-react';
-import { usePipeline } from '../../hooks';
+import { usePipeline, useWebSocket } from '../../hooks';
 import { usePipelineStore } from '../../store';
 import clsx from 'clsx';
 
 export function Sidebar() {
-  const { state, sourceInfo } = usePipelineStore();
-  const { start, stop, pause, resume, uploadFile, setCamera, isLoading } = usePipeline();
+  const { state, sourceInfo, connected } = usePipelineStore();
+  const { uploadFile, setCamera, closeSource, isLoading } = usePipeline();
+  const { sendControl } = useWebSocket();
   const [showSourcePanel, setShowSourcePanel] = useState(true);
+  
+  const start = useCallback(() => sendControl('start'), [sendControl]);
+  const stop = useCallback(() => sendControl('stop'), [sendControl]);
+  const pause = useCallback(() => sendControl('pause'), [sendControl]);
+  const resume = useCallback(() => sendControl('resume'), [sendControl]);
   
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -40,59 +47,59 @@ export function Sidebar() {
       <div className="p-4 border-b border-border-primary">
         <h3 className="text-sm font-medium text-gray-400 mb-3">流水线控制</h3>
         <div className="flex gap-2">
-          {state === 'idle' && (
-            <button
-              onClick={start}
-              disabled={isLoading || !sourceInfo}
-              className={clsx(
-                'btn-primary flex-1 flex items-center justify-center gap-2',
-                (!sourceInfo || isLoading) && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              <Play className="w-4 h-4" />
-              启动
-            </button>
-          )}
+           {state === 'idle' && (
+             <button
+               onClick={start}
+               disabled={isLoading || !sourceInfo || !connected}
+               className={clsx(
+                 'btn-primary flex-1 flex items-center justify-center gap-2',
+                 (!sourceInfo || isLoading || !connected) && 'opacity-50 cursor-not-allowed'
+               )}
+             >
+               <Play className="w-4 h-4" />
+               启动
+             </button>
+           )}
           
-          {state === 'running' && (
-            <>
-              <button
-                onClick={pause}
-                disabled={isLoading}
-                className="btn-secondary flex-1 flex items-center justify-center gap-2"
-              >
-                <Pause className="w-4 h-4" />
-                暂停
-              </button>
-              <button
-                onClick={stop}
-                disabled={isLoading}
-                className="btn-danger flex items-center justify-center px-3"
-              >
-                <Square className="w-4 h-4" />
-              </button>
-            </>
-          )}
-          
-          {state === 'paused' && (
-            <>
-              <button
-                onClick={resume}
-                disabled={isLoading}
-                className="btn-success flex-1 flex items-center justify-center gap-2"
-              >
-                <Play className="w-4 h-4" />
-                继续
-              </button>
-              <button
-                onClick={stop}
-                disabled={isLoading}
-                className="btn-danger flex items-center justify-center px-3"
-              >
-                <Square className="w-4 h-4" />
-              </button>
-            </>
-          )}
+           {state === 'running' && (
+             <>
+               <button
+                 onClick={pause}
+                 disabled={isLoading || !connected}
+                 className="btn-secondary flex-1 flex items-center justify-center gap-2"
+               >
+                 <Pause className="w-4 h-4" />
+                 暂停
+               </button>
+               <button
+                 onClick={stop}
+                 disabled={isLoading || !connected}
+                 className="btn-danger flex items-center justify-center px-3"
+               >
+                 <Square className="w-4 h-4" />
+               </button>
+             </>
+           )}
+           
+           {state === 'paused' && (
+             <>
+               <button
+                 onClick={resume}
+                 disabled={isLoading || !connected}
+                 className="btn-success flex-1 flex items-center justify-center gap-2"
+               >
+                 <Play className="w-4 h-4" />
+                 继续
+               </button>
+               <button
+                 onClick={stop}
+                 disabled={isLoading || !connected}
+                 className="btn-danger flex items-center justify-center px-3"
+               >
+                 <Square className="w-4 h-4" />
+               </button>
+             </>
+           )}
         </div>
       </div>
       
@@ -136,32 +143,41 @@ export function Sidebar() {
         )}
       </div>
       
-      {/* 当前源信息 */}
-      {sourceInfo && (
-        <div className="p-4 border-b border-border-primary">
-          <h3 className="text-sm font-medium text-gray-400 mb-2">当前视觉源</h3>
-          <div className="bg-bg-tertiary rounded-lg p-3 space-y-1">
-            <div className="flex items-center gap-2">
-              {sourceInfo.source_type === 'image' && <Image className="w-4 h-4 text-blue-400" />}
-              {sourceInfo.source_type === 'video' && <Video className="w-4 h-4 text-green-400" />}
-              {sourceInfo.source_type === 'camera' && <Camera className="w-4 h-4 text-purple-400" />}
-              <span className="text-sm text-gray-300 capitalize">
-                {getSourceTypeLabel(sourceInfo.source_type)}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500">
-              {sourceInfo.width} x {sourceInfo.height}
-              {sourceInfo.fps > 0 && ` @ ${sourceInfo.fps.toFixed(1)} FPS`}
-            </div>
-            {sourceInfo.path && (
-              <div className="flex items-center gap-1 text-xs text-gray-500 truncate">
-                <Folder className="w-3 h-3 flex-shrink-0" />
-                <span className="truncate">{sourceInfo.path.split(/[/\\]/).pop()}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+       {/* 当前源信息 */}
+       {sourceInfo && (
+         <div className="p-4 border-b border-border-primary">
+           <div className="flex items-center justify-between mb-2">
+             <h3 className="text-sm font-medium text-gray-400">当前视觉源</h3>
+             <button 
+               onClick={closeSource}
+               className="btn-icon text-gray-500 hover:text-red-400"
+               title="关闭视觉源"
+             >
+               <X className="w-4 h-4" />
+             </button>
+           </div>
+           <div className="bg-bg-tertiary rounded-lg p-3 space-y-1">
+             <div className="flex items-center gap-2">
+               {sourceInfo.source_type === 'image' && <Image className="w-4 h-4 text-blue-400" />}
+               {sourceInfo.source_type === 'video' && <Video className="w-4 h-4 text-green-400" />}
+               {sourceInfo.source_type === 'camera' && <Camera className="w-4 h-4 text-purple-400" />}
+               <span className="text-sm text-gray-300 capitalize">
+                 {getSourceTypeLabel(sourceInfo.source_type)}
+               </span>
+             </div>
+             <div className="text-xs text-gray-500">
+               {sourceInfo.width} x {sourceInfo.height}
+               {sourceInfo.fps > 0 && ` @ ${sourceInfo.fps.toFixed(1)} FPS`}
+             </div>
+             {sourceInfo.path && (
+               <div className="flex items-center gap-1 text-xs text-gray-500 truncate">
+                 <Folder className="w-3 h-3 flex-shrink-0" />
+                 <span className="truncate">{sourceInfo.path.split(/[/\\]/).pop()}</span>
+               </div>
+             )}
+           </div>
+         </div>
+       )}
       
       {/* 底部填充 */}
       <div className="flex-1" />

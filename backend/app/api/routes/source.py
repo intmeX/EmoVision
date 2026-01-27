@@ -75,6 +75,11 @@ async def upload_file(
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     
+    # 如果流水线正在运行，则停止它，因为在切换视觉源后需要重新启动
+    original_state = pipeline.state
+    if pipeline.state.value == "running":
+        pipeline.stop()
+    
     # 打开视觉源
     source_manager = pipeline.source_manager
     
@@ -88,17 +93,23 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="无法打开文件")
     
     info = source_manager.source_info
-    return ApiResponse(
-        data=SourceInfo(
-            source_type=info.source_type.value,
-            path=info.path,
-            width=info.width,
-            height=info.height,
-            fps=info.fps,
-            total_frames=info.total_frames
-        ),
-        message="文件上传成功"
-    )
+    
+    # 如果原先是运行状态，现在视觉源已更改，应保持在idle状态
+    # 实际的重启应该通过WebSocket命令来完成
+    if info:
+        return ApiResponse(
+            data=SourceInfo(
+                source_type=info.source_type.value,
+                path=info.path,
+                width=info.width,
+                height=info.height,
+                fps=info.fps,
+                total_frames=info.total_frames
+            ),
+            message="文件上传成功"
+        )
+    else:
+        raise HTTPException(status_code=400, detail="无法获取视觉源信息")
 
 
 @router.post("/camera", response_model=ApiResponse[SourceInfo])
@@ -107,6 +118,11 @@ async def set_camera(
     pipeline: Pipeline = Depends(get_pipeline)
 ) -> ApiResponse[SourceInfo]:
     """设置摄像头源"""
+    # 如果流水线正在运行，则停止它，因为在切换视觉源后需要重新启动
+    original_state = pipeline.state
+    if pipeline.state.value == "running":
+        pipeline.stop()
+    
     source_manager = pipeline.source_manager
     
     success = source_manager.open_camera(request.camera_id)
@@ -117,16 +133,19 @@ async def set_camera(
         )
     
     info = source_manager.source_info
-    return ApiResponse(
-        data=SourceInfo(
-            source_type=info.source_type.value,
-            camera_id=info.camera_id,
-            width=info.width,
-            height=info.height,
-            fps=info.fps
-        ),
-        message="摄像头设置成功"
-    )
+    if info:
+        return ApiResponse(
+            data=SourceInfo(
+                source_type=info.source_type.value,
+                camera_id=info.camera_id,
+                width=info.width,
+                height=info.height,
+                fps=info.fps
+            ),
+            message="摄像头设置成功"
+        )
+    else:
+        raise HTTPException(status_code=400, detail="无法设置摄像头")
 
 
 @router.get("/list", response_model=ApiResponse[List[CameraInfo]])
@@ -153,16 +172,23 @@ async def get_current_source(
     if info is None:
         return ApiResponse(data=None, message="未选择视觉源")
     
+    # 动态构造SourceInfo，处理可能为None的字段
+    source_info_data = {
+        "source_type": info.source_type.value,
+        "width": info.width,
+        "height": info.height,
+        "fps": info.fps,
+    }
+    
+    # 根据source_type添加特定字段
+    if info.source_type.value == "camera":
+        source_info_data["camera_id"] = info.camera_id
+    else:
+        source_info_data["path"] = info.path
+        source_info_data["total_frames"] = info.total_frames
+    
     return ApiResponse(
-        data=SourceInfo(
-            source_type=info.source_type.value,
-            path=info.path,
-            camera_id=info.camera_id,
-            width=info.width,
-            height=info.height,
-            fps=info.fps,
-            total_frames=info.total_frames
-        ),
+        data=SourceInfo(**source_info_data),
         message="获取成功"
     )
 

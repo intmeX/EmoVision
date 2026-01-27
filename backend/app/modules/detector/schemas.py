@@ -17,7 +17,7 @@ class DetectionType(str, Enum):
 class Detection(BaseModel):
     """单个检测结果"""
     id: int = Field(..., description="检测目标ID")
-    ob_type: DetectionType = Field(..., description="检测类型")
+    type: DetectionType = Field(..., description="检测类型")
     bbox: BoundingBox = Field(..., description="边界框")
     confidence: float = Field(..., ge=0.0, le=1.0, description="置信度")
     paired_id: Optional[int] = Field(default=None, description="配对的目标ID")

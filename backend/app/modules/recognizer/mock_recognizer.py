@@ -72,7 +72,7 @@ class MockEmotionRecognizer(BaseEmotionRecognizer):
         
         # 只对face类型的检测生成情绪结果
         face_detections = [
-            d for d in detections if d.ob_type == DetectionType.FACE
+            d for d in detections if d.type == DetectionType.FACE
         ]
         
         for detection in face_detections:

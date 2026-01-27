@@ -188,12 +188,24 @@ class Pipeline:
         start_time = time.perf_counter()
         
         # 1. 目标检测
+        if self._detector is None:
+            logger.error("检测器未初始化")
+            return
+            
         detections = self._detector.detect(frame)
         
         # 2. 情绪识别
+        if self._recognizer is None:
+            logger.error("识别器未初始化")
+            return
+            
         emotions = self._recognizer.predict(frame, detections)
         
         # 3. 可视化渲染
+        if self._renderer is None:
+            logger.error("渲染器未初始化")
+            return
+            
         rendered_frame = self._renderer.render(frame, detections, emotions)
         
         # 4. 编码
@@ -232,7 +244,7 @@ class Pipeline:
         """转换检测结果为载荷格式"""
         return DetectionPayload(
             id=detection.id,
-            type=detection.ob_type,
+            type=detection.type,
             bbox=detection.bbox,
             confidence=detection.confidence,
             paired_id=detection.paired_id

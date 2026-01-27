@@ -112,7 +112,7 @@ class FrameRenderer:
             )
         else:
             # 根据检测类型使用默认颜色
-            color = (0, 255, 0) if detection.ob_type == DetectionType.FACE else (255, 0, 0)
+            color = (0, 255, 0) if detection.type == DetectionType.FACE else (255, 0, 0)
         
         # 绘制边界框
         if self._config.show_bounding_box:

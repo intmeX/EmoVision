@@ -2,11 +2,12 @@
 
 import { useCallback, useState } from 'react';
 import { api } from '../services/api';
+import { wsService } from '../services/websocket';
 import { usePipelineStore } from '../store';
 import type { SourceInfo } from '../types';
 
 export function usePipeline() {
-  const { state, sourceInfo, setSourceInfo, setState } = usePipelineStore();
+  const { state, sourceInfo, setSourceInfo } = usePipelineStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -14,7 +15,8 @@ export function usePipeline() {
     try {
       setIsLoading(true);
       setError(null);
-      await api.startPipeline();
+      // 通过WebSocket发送开始指令
+      wsService.send('start');
     } catch (err) {
       setError(err instanceof Error ? err.message : '启动失败');
     } finally {
@@ -26,41 +28,41 @@ export function usePipeline() {
     try {
       setIsLoading(true);
       setError(null);
-      await api.stopPipeline();
-      setState('idle');
+      // 通过WebSocket发送停止指令
+      wsService.send('stop');
     } catch (err) {
       setError(err instanceof Error ? err.message : '停止失败');
     } finally {
       setIsLoading(false);
     }
-  }, [setState]);
-  
+  }, []);
+
   const pause = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      await api.pausePipeline();
-      setState('paused');
+      // 通过WebSocket发送暂停指令
+      wsService.send('pause');
     } catch (err) {
       setError(err instanceof Error ? err.message : '暂停失败');
     } finally {
       setIsLoading(false);
     }
-  }, [setState]);
-  
+  }, []);
+
   const resume = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      await api.resumePipeline();
-      setState('running');
+      // 通过WebSocket发送恢复指令
+      wsService.send('resume');
     } catch (err) {
       setError(err instanceof Error ? err.message : '恢复失败');
     } finally {
       setIsLoading(false);
     }
-  }, [setState]);
-  
+  }, []);
+
   const uploadFile = useCallback(async (file: File): Promise<SourceInfo | null> => {
     try {
       setIsLoading(true);

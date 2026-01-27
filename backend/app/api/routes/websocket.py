@@ -6,13 +6,14 @@ WebSocket端点
 
 import asyncio
 import json
+import time
 from typing import Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from ..deps import get_session_manager, get_pipeline
+from ..deps import get_session_manager
 from ...core import Pipeline, SessionManager
-from ...schemas.websocket import ControlMessage, WSMessage
+from ...schemas.websocket import ControlMessage, WSMessage, StatusMessage
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -75,21 +76,10 @@ async def websocket_stream(websocket: WebSocket):
     """
     await manager.connect(websocket)
     
-    # 获取流水线
+    # 获取全局流水线实例（与API路由共享）
+    from ..deps import get_pipeline
     session_manager = get_session_manager()
-    session = session_manager.get_or_create_session()
-    
-    # 这里需要获取pipeline，但不能使用Depends
-    # 简化处理：使用全局单例
-    from ..deps import _pipeline, get_pipeline as _get_pipeline
-    
-    global _pipeline
-    if _pipeline is None:
-        from ...core import Pipeline
-        _pipeline = Pipeline(session.config)
-        _pipeline.initialize()
-    
-    pipeline = _pipeline
+    pipeline = get_pipeline(session_manager)
     
     # 设置回调
     async def on_frame(msg):
@@ -107,6 +97,9 @@ async def websocket_stream(websocket: WebSocket):
         on_status=on_status
     )
     
+    # 独立的任务来运行流水线
+    running_task = None
+    
     try:
         while True:
             # 接收控制消息
@@ -122,9 +115,14 @@ async def websocket_stream(websocket: WebSocket):
                     
                     if action == "start":
                         if pipeline.source_manager.source_info:
-                            asyncio.create_task(pipeline.run())
+                            if running_task is None or running_task.done():
+                                running_task = asyncio.create_task(pipeline.run())
                     elif action == "stop":
                         pipeline.stop()
+                        if running_task and not running_task.done():
+                            running_task.cancel()
+                            # 不在这里等待任务完成，避免阻塞WebSocket循环
+                            running_task = None
                     elif action == "pause":
                         pipeline.pause()
                     elif action == "resume":
@@ -142,4 +140,15 @@ async def websocket_stream(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket错误: {e}")
     finally:
+        # 清理资源
+        if running_task and not running_task.done():
+            running_task.cancel()
+            # 等待任务完成最多几秒钟
+            try:
+                await asyncio.wait_for(running_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning("流水线任务清理超时")
+            except asyncio.CancelledError:
+                pass
+        # 注意：不再清理pipeline，因为它是由deps管理的共享实例
         manager.disconnect(websocket)
