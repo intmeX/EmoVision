@@ -1,24 +1,37 @@
-// WebSocket连接Hook
+/**
+ * WebSocket连接Hook
+ * 
+ * 管理WebSocket连接并分发消息到FrameManager和Zustand store
+ */
 
 import { useEffect, useCallback } from 'react';
-import { wsService } from '../services/websocket';
-import { usePipelineStore } from '../store';
-import type { WSMessage } from '../types';
+import { wsService } from '@/services/websocket';
+import { frameManager } from '@/services/frameManager';
+import { usePipelineStore } from '@/store';
+import type { WSMessage, FrameMessage } from '@/types';
 
 export function useWebSocket() {
   const { 
     setConnected, 
     setState, 
     setSourceInfo, 
-    updateFrame, 
     updateStats 
   } = usePipelineStore();
   
   const handleMessage = useCallback((message: WSMessage) => {
     switch (message.type) {
-      case 'frame':
-        updateFrame(message);
+      case 'frame': {
+        // 帧数据通过FrameManager分发，不触发React重渲染
+        const frameMsg = message as FrameMessage;
+        frameManager.updateFrame({
+          image: frameMsg.image,
+          frameId: frameMsg.frame_id,
+          detections: frameMsg.detections,
+          emotions: frameMsg.emotions,
+          timestamp: frameMsg.timestamp,
+        });
         break;
+      }
       case 'status':
         setState(message.pipeline_state);
         setSourceInfo(message.source_info);
@@ -30,10 +43,14 @@ export function useWebSocket() {
         console.error('流水线错误:', message.message);
         break;
     }
-  }, [setState, setSourceInfo, updateFrame, updateStats]);
+  }, [setState, setSourceInfo, updateStats]);
   
   const handleConnection = useCallback((connected: boolean) => {
     setConnected(connected);
+    if (!connected) {
+      // 断开连接时清除帧数据
+      frameManager.clear();
+    }
   }, [setConnected]);
   
   useEffect(() => {

@@ -30,7 +30,19 @@ export interface FrameMessage {
   type: 'frame';
   timestamp: number;
   frame_id: number;
-  image: string;
+  image: string;  // Base64字符串或Object URL
+  detections: import('./detection').Detection[];
+  emotions: import('./emotion').EmotionResult[];
+  /** 标记image是否为Object URL（需要手动释放） */
+  isObjectUrl?: boolean;
+}
+
+/** 二进制帧头部消息（用于二进制WebSocket传输） */
+export interface FrameHeaderMessage {
+  type: 'frame_header';
+  timestamp: number;
+  frame_id: number;
+  image_size: number;
   detections: import('./detection').Detection[];
   emotions: import('./emotion').EmotionResult[];
 }

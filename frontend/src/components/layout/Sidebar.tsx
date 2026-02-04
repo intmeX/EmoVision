@@ -18,12 +18,15 @@ import {
 import { usePipeline, useWebSocket } from '../../hooks';
 import { usePipelineStore } from '../../store';
 import clsx from 'clsx';
+import { getSourceTypeLabel } from '../../utils/helpers';
+import { AdvancedSettingsPanel } from '../config/AdvancedSettingsPanel';
 
 export function Sidebar() {
   const { state, sourceInfo, connected } = usePipelineStore();
   const { uploadFile, setCamera, closeSource, isLoading } = usePipeline();
   const { sendControl } = useWebSocket();
   const [showSourcePanel, setShowSourcePanel] = useState(true);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   
   const start = useCallback(() => sendControl('start'), [sendControl]);
   const stop = useCallback(() => sendControl('stop'), [sendControl]);
@@ -182,22 +185,36 @@ export function Sidebar() {
       {/* 底部填充 */}
       <div className="flex-1" />
       
-      {/* 设置入口 */}
-      <div className="p-4 border-t border-border-primary">
-        <button className="w-full flex items-center gap-3 p-3 text-gray-400 hover:text-gray-200 hover:bg-bg-tertiary rounded-lg transition-colors">
-          <Settings className="w-5 h-5" />
-          <span className="text-sm">高级设置</span>
-        </button>
-      </div>
+       {/* 设置入口 */}
+       <div className="p-4 border-t border-border-primary">
+         <button 
+           className="w-full flex items-center gap-3 p-3 text-gray-400 hover:text-gray-200 hover:bg-bg-tertiary rounded-lg transition-colors"
+           onClick={() => setShowAdvancedSettings(true)}
+         >
+           <Settings className="w-5 h-5" />
+           <span className="text-sm">高级设置</span>
+         </button>
+       </div>
+       
+       {/* 高级设置弹窗 */}
+       {showAdvancedSettings && (
+         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+           <div className="bg-bg-primary rounded-lg max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+             <div className="p-4 border-b border-border-primary flex justify-between items-center">
+               <h2 className="text-lg font-medium">高级设置</h2>
+               <button
+                 onClick={() => setShowAdvancedSettings(false)}
+                 className="btn-icon text-gray-400 hover:text-white"
+               >
+                 <X className="w-5 h-5" />
+               </button>
+             </div>
+             <div className="p-6">
+               <AdvancedSettingsPanel />
+             </div>
+           </div>
+         </div>
+       )}
     </aside>
   );
-}
-
-function getSourceTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    image: '图像',
-    video: '视频',
-    camera: '摄像头',
-  };
-  return labels[type] || type;
 }

@@ -1,11 +1,149 @@
-// 视频播放器组件
+/**
+ * 视频播放器组件
+ * 
+ * 使用Canvas渲染帧数据，避免React重渲染
+ */
 
-import { usePipelineStore } from '../../store';
-import { Image as ImageIcon, Video, Camera } from 'lucide-react';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { usePipelineStore } from '@/store';
+import { useFrame } from '@/hooks/useFrame';
+import { frameBuffer } from '@/services/frameBuffer';
+import { Video } from 'lucide-react';
+import { getSourceTypeLabel } from '@/utils/helpers';
 
 export function VideoPlayer() {
-  const { currentFrame, sourceInfo, state } = usePipelineStore();
+  const { sourceInfo, state } = usePipelineStore();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const rafIdRef = useRef<number>(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 640, height: 480 });
   
+  // 用于非运行状态显示的静态帧
+  const [staticFrame, setStaticFrame] = useState<string | null>(null);
+
+  // 更新尺寸
+  useEffect(() => {
+    if (sourceInfo) {
+      setDimensions({ width: sourceInfo.width, height: sourceInfo.height });
+    }
+  }, [sourceInfo]);
+
+  // 接收帧数据到缓冲区
+  useFrame(useCallback((frame) => {
+    frameBuffer.push(frame);
+    // 保存最新帧用于非运行状态显示
+    setStaticFrame(frame.image);
+  }, []));
+
+  // 初始化Canvas上下文 - 当Canvas挂载或尺寸变化时
+  useEffect(() => {
+    if (canvasRef.current) {
+      ctxRef.current = canvasRef.current.getContext('2d', {
+        alpha: false,           // 禁用透明度，提升性能
+        desynchronized: true,   // 允许异步渲染
+      });
+    }
+  }, [dimensions]); // 当尺寸变化时重新获取上下文
+
+  // 渲染循环
+  useEffect(() => {
+    if (state !== 'running') {
+      // 非运行状态，停止渲染循环
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      return;
+    }
+
+    // 确保Canvas上下文已初始化
+    if (canvasRef.current && !ctxRef.current) {
+      ctxRef.current = canvasRef.current.getContext('2d', {
+        alpha: false,
+        desynchronized: true,
+      });
+    }
+
+    const render = async () => {
+      const frame = frameBuffer.getPlayableFrame();
+      if (frame && ctxRef.current && canvasRef.current) {
+        try {
+          // 检查是否为Object URL
+          const isObjectUrl = frame.image.startsWith('blob:');
+          
+          if (isObjectUrl) {
+            // Object URL：使用fetch + createImageBitmap确保同步渲染
+            const response = await fetch(frame.image);
+            const blob = await response.blob();
+            const bitmap = await createImageBitmap(blob);
+            
+            if (ctxRef.current && canvasRef.current) {
+              ctxRef.current.drawImage(bitmap, 0, 0, canvasRef.current.width, canvasRef.current.height);
+            }
+            bitmap.close();
+            // 释放Object URL
+            URL.revokeObjectURL(frame.image);
+          } else {
+            // Base64：使用createImageBitmap高效解码
+            const binary = atob(frame.image);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: 'image/jpeg' });
+            const bitmap = await createImageBitmap(blob);
+            
+            if (ctxRef.current && canvasRef.current) {
+              ctxRef.current.drawImage(bitmap, 0, 0, canvasRef.current.width, canvasRef.current.height);
+            }
+            bitmap.close();
+          }
+        } catch (e) {
+          console.error('Frame decode error:', e);
+        }
+      }
+      rafIdRef.current = requestAnimationFrame(render);
+    };
+
+    rafIdRef.current = requestAnimationFrame(render);
+    
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      frameBuffer.clear();
+    };
+  }, [state]);
+
+  // 对摄像头源处理实时视频流
+  useEffect(() => {
+    if (!videoRef.current || !sourceInfo || sourceInfo.source_type !== 'camera') {
+      return;
+    }
+
+    const video = videoRef.current;
+    
+    // 获取摄像头流
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+      })
+      .catch(err => {
+        console.error('无法访问摄像头:', err);
+      });
+
+    // 返回清理函数
+    return () => {
+      // 清理摄像头流
+      if (video.srcObject) {
+        const tracks = (video.srcObject as MediaStream).getTracks();
+        tracks.forEach(track => track.stop());
+      }
+    };
+  }, [sourceInfo]);
+
   // 无视觉源时的占位界面
   if (!sourceInfo) {
     return (
@@ -18,49 +156,58 @@ export function VideoPlayer() {
       </div>
     );
   }
-  
-  // 有视觉源但未运行
-  if (!currentFrame && state === 'idle') {
+
+  // 摄像头源：始终显示实时画面
+  if (sourceInfo.source_type === 'camera') {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-bg-tertiary rounded-lg">
-        <div className="w-20 h-20 bg-bg-elevated rounded-full flex items-center justify-center mb-4">
-          {sourceInfo.source_type === 'image' && <ImageIcon className="w-10 h-10 text-blue-500" />}
-          {sourceInfo.source_type === 'video' && <Video className="w-10 h-10 text-green-500" />}
-          {sourceInfo.source_type === 'camera' && <Camera className="w-10 h-10 text-purple-500" />}
-        </div>
-        <p className="text-gray-300 text-lg">
-          {getSourceTypeLabel(sourceInfo.source_type)}已就绪
-        </p>
-        <p className="text-gray-500 text-sm mt-2">点击"启动"按钮开始识别</p>
-        <div className="mt-4 text-xs text-gray-600">
-          {sourceInfo.width} x {sourceInfo.height}
-          {sourceInfo.fps > 0 && ` @ ${sourceInfo.fps.toFixed(1)} FPS`}
-        </div>
+      <div className="w-full h-full flex items-center justify-center bg-black rounded-lg overflow-hidden">
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className="max-w-full max-h-full object-contain"
+        />
       </div>
     );
   }
-  
-  // 显示实时帧
+
+  // 图片/视频源：Canvas始终存在，根据状态显示不同内容
+  const isRunning = state === 'running';
+  const showStaticFrame = !isRunning && staticFrame;
+  const showPlaceholder = !isRunning && !staticFrame;
+
   return (
-    <div className="w-full h-full flex items-center justify-center bg-black rounded-lg overflow-hidden">
-      {currentFrame ? (
+    <div className="w-full h-full flex items-center justify-center bg-black rounded-lg overflow-hidden relative">
+      {/* Canvas始终渲染，运行时显示 */}
+      <canvas
+        ref={canvasRef}
+        width={dimensions.width}
+        height={dimensions.height}
+        className={`max-w-full max-h-full object-contain ${isRunning ? '' : 'hidden'}`}
+      />
+      
+      {/* 非运行状态：显示静态帧 */}
+      {showStaticFrame && (
         <img
-          src={`data:image/jpeg;base64,${currentFrame}`}
-          alt="实时帧"
+          src={staticFrame.startsWith('blob:') ? staticFrame : `data:image/jpeg;base64,${staticFrame}`}
+          alt="预览帧"
           className="max-w-full max-h-full object-contain"
         />
-      ) : (
-        <div className="text-gray-500">等待帧数据...</div>
+      )}
+      
+      {/* 等待帧数据的占位符 */}
+      {showPlaceholder && (
+        <div className="flex flex-col items-center justify-center bg-bg-tertiary rounded-lg absolute inset-0">
+          <div className="w-20 h-20 bg-bg-elevated rounded-full flex items-center justify-center mb-4">
+            <Video className={`w-10 h-10 ${sourceInfo.source_type === 'image' ? 'text-blue-500' : 'text-green-500'}`} />
+          </div>
+          <p className="text-gray-300 text-lg">
+            {getSourceTypeLabel(sourceInfo.source_type)}已就绪
+          </p>
+          <p className="text-gray-500 text-sm mt-2">点击启动开始处理</p>
+        </div>
       )}
     </div>
   );
-}
-
-function getSourceTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    image: '图像',
-    video: '视频',
-    camera: '摄像头',
-  };
-  return labels[type] || type;
 }

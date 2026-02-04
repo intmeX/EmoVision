@@ -34,6 +34,21 @@ class FrameMessage(BaseModel):
     emotions: list[EmotionPayload] = Field(default_factory=list)
 
 
+class BinaryFrameHeader(BaseModel):
+    """二进制帧头部消息（用于二进制WebSocket传输）
+    
+    传输协议：
+    1. 先发送此JSON头部
+    2. 紧接着发送二进制JPEG图像数据
+    """
+    type: Literal["frame_header"] = "frame_header"
+    timestamp: float = Field(..., description="时间戳")
+    frame_id: int = Field(..., description="帧ID")
+    image_size: int = Field(..., description="图像字节数")
+    detections: list[DetectionPayload] = Field(default_factory=list)
+    emotions: list[EmotionPayload] = Field(default_factory=list)
+
+
 class StatusMessage(BaseModel):
     """状态消息"""
     type: Literal["status"] = "status"

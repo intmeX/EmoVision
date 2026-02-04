@@ -4,7 +4,7 @@ import { Users, Smile, Clock, Zap } from 'lucide-react';
 import { usePipelineStore } from '../../store';
 
 export function StatsPanel() {
-  const { fps, latency, detections, emotions, frameId } = usePipelineStore();
+  const { fps, latency, detections, emotions } = usePipelineStore();
   
   const stats = [
     {

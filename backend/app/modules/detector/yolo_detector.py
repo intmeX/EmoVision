@@ -26,11 +26,8 @@ class YOLODetector(BaseDetector):
     支持检测人脸(face)和人体(person)两种目标类型
     """
     
-    # YOLO11官方预训练模型的类别映射
-    # 这里假设使用的是自定义训练的face+person模型
-    # 如使用COCO预训练模型，person类别ID为0
     PERSON_CLASS_ID = 0  # COCO数据集中person的类别ID
-    
+
     def __init__(
         self,
         config: DetectorConfig,
@@ -58,7 +55,7 @@ class YOLODetector(BaseDetector):
                 self._model = YOLO(str(self._model_path))
             else:
                 # 使用预训练模型
-                model_name = f"yolo11{self._config.model_size.value}.pt"
+                model_name = f"yolo26m_ch.pt"
                 logger.info(f"加载预训练YOLO模型: {model_name}")
                 self._model = YOLO(model_name)
             

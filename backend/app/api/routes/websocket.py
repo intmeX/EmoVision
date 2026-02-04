@@ -13,7 +13,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..deps import get_session_manager
 from ...core import Pipeline, SessionManager
-from ...schemas.websocket import ControlMessage, WSMessage, StatusMessage
+from ...schemas.websocket import (
+    BinaryFrameHeader,
+    ControlMessage,
+    StatusMessage,
+    WSMessage,
+)
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +31,17 @@ class ConnectionManager:
     
     def __init__(self):
         self._connections: Set[WebSocket] = set()
+        self._use_binary: bool = True  # 默认使用二进制传输
+    
+    @property
+    def use_binary(self) -> bool:
+        """是否使用二进制传输"""
+        return self._use_binary
+    
+    @use_binary.setter
+    def use_binary(self, value: bool) -> None:
+        """设置是否使用二进制传输"""
+        self._use_binary = value
     
     async def connect(self, websocket: WebSocket) -> None:
         """接受新连接"""
@@ -49,6 +65,40 @@ class ConnectionManager:
         for conn in self._connections:
             try:
                 await conn.send_text(data)
+            except Exception:
+                disconnected.append(conn)
+        
+        for conn in disconnected:
+            self._connections.discard(conn)
+    
+    async def broadcast_binary_frame(
+        self,
+        header: BinaryFrameHeader,
+        image_bytes: bytes
+    ) -> None:
+        """
+        广播二进制帧数据
+        
+        传输协议：
+        1. 先发送JSON头部（包含元数据）
+        2. 紧接着发送二进制图像数据
+        
+        Args:
+            header: 帧头部信息
+            image_bytes: JPEG图像字节数据
+        """
+        if not self._connections:
+            return
+        
+        header_json = header.model_dump_json()
+        disconnected = []
+        
+        for conn in self._connections:
+            try:
+                # 先发送JSON头部
+                await conn.send_text(header_json)
+                # 再发送二进制图像数据
+                await conn.send_bytes(image_bytes)
             except Exception:
                 disconnected.append(conn)
         
@@ -85,6 +135,23 @@ async def websocket_stream(websocket: WebSocket):
     async def on_frame(msg):
         await manager.broadcast(msg)
     
+    async def on_binary_frame(header, image_bytes):
+        """二进制帧回调"""
+        if manager.use_binary:
+            await manager.broadcast_binary_frame(header, image_bytes)
+        else:
+            # 降级到Base64传输
+            import base64
+            from ...schemas.websocket import FrameMessage
+            frame_msg = FrameMessage(
+                timestamp=header.timestamp,
+                frame_id=header.frame_id,
+                image=base64.b64encode(image_bytes).decode('utf-8'),
+                detections=header.detections,
+                emotions=header.emotions
+            )
+            await manager.broadcast(frame_msg)
+    
     async def on_stats(msg):
         await manager.broadcast(msg)
     
@@ -93,6 +160,7 @@ async def websocket_stream(websocket: WebSocket):
     
     pipeline.set_callbacks(
         on_frame=on_frame,
+        on_binary_frame=on_binary_frame,
         on_stats=on_stats,
         on_status=on_status
     )
@@ -118,15 +186,15 @@ async def websocket_stream(websocket: WebSocket):
                             if running_task is None or running_task.done():
                                 running_task = asyncio.create_task(pipeline.run())
                     elif action == "stop":
-                        pipeline.stop()
+                        await pipeline.stop()
                         if running_task and not running_task.done():
                             running_task.cancel()
                             # 不在这里等待任务完成，避免阻塞WebSocket循环
                             running_task = None
                     elif action == "pause":
-                        pipeline.pause()
+                        await pipeline.pause()
                     elif action == "resume":
-                        pipeline.resume()
+                        await pipeline.resume()
                     
                 except json.JSONDecodeError:
                     pass

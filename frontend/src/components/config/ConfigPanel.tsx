@@ -13,7 +13,7 @@ type ConfigTab = 'detector' | 'recognizer' | 'visualizer' | 'performance';
 export function ConfigPanel() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ConfigTab>('detector');
-  const { config, isDirty, isLoading, saveConfig, resetConfig } = useConfig();
+  const { isDirty, isLoading, saveConfig, resetConfig } = useConfig();
   
   const tabs: { id: ConfigTab; label: string }[] = [
     { id: 'detector', label: '目标检测' },
@@ -104,9 +104,11 @@ export function ConfigPanel() {
 }
 
 // 性能配置面板
+import { useConfigStore } from '../../store';
+
 function PerformanceConfigPanel() {
   const { config, isLoading } = useConfig();
-  const { updatePerformance } = require('../../store').useConfigStore();
+  const { updatePerformance } = useConfigStore();
   
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -40,7 +40,7 @@ class Settings(BaseSettings):
         description="模型权重目录"
     )
     yolo_model_size: Literal["n", "s", "m", "l", "x"] = Field(
-        default="n",
+        default="m",
         description="YOLO模型尺寸"
     )
     

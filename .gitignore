@@ -208,6 +208,7 @@ __marimo__/
 
 .trae/
 .opencode/
+.sisyphus/
 
 # Frontend
 frontend/node_modules/

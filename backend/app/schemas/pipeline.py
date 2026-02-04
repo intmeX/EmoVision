@@ -96,6 +96,12 @@ class PerformanceConfig(BaseModel):
     skip_frames: int = Field(default=0, ge=0, le=10, description="跳帧数")
     async_inference: bool = Field(default=True, description="异步推理")
     output_quality: int = Field(default=80, ge=10, le=100, description="输出JPEG质量")
+    
+    # 新增性能参数
+    use_binary_ws: bool = Field(default=True, description="使用二进制WebSocket传输")
+    inference_threads: int = Field(default=2, ge=1, le=4, description="推理线程数")
+    frame_buffer_size: int = Field(default=2, ge=1, le=5, description="帧缓冲区大小")
+    adaptive_skip: bool = Field(default=True, description="自适应跳帧（最新帧优先）")
 
 
 class PipelineConfig(BaseModel):

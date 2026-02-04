@@ -5,6 +5,9 @@
 """
 
 import asyncio
+import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Tuple, Union
@@ -74,6 +77,13 @@ class SourceManager:
         self._is_paused = False
         self._current_frame: Optional[np.ndarray] = None
         self._lock = asyncio.Lock()
+        
+        # 帧队列（用于自适应帧生成器）
+        self._frame_queue: deque = deque(maxlen=2)  # 最多缓存2帧
+        self._queue_lock = asyncio.Lock()
+        
+        # 帧读取线程池（避免阻塞事件循环）
+        self._read_executor: Optional[ThreadPoolExecutor] = None
     
     @property
     def source_info(self) -> Optional[SourceInfo]:
@@ -148,10 +158,18 @@ class SourceManager:
             logger.error(f"无法打开视频: {path}")
             return False
         
+        # 读取第一帧
+        ret, first_frame = self._capture.read()
+        if ret:
+            self._current_frame = first_frame
+        
         w = int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = self._capture.get(cv2.CAP_PROP_FPS)
         total = int(self._capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # 重置到开头，以便后续处理
+        self._capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
         
         self._source_info = SourceInfo(
             source_type=SourceType.VIDEO,
@@ -260,8 +278,8 @@ class SourceManager:
                 
                 if not ret or frame is None:
                     if self._source_info.source_type == SourceType.VIDEO:
-                        # 视频结束
-                        logger.info("视频播放完毕")
+                        # 视频结束，停止流水线
+                        logger.info("视频播放完毕，停止流水线")
                         break
                     else:
                         # 摄像头读取失败，稍后重试
@@ -288,6 +306,117 @@ class SourceManager:
         
         finally:
             self._is_running = False
+    
+    async def frame_generator_adaptive(
+        self,
+        target_fps: float = 30.0
+    ) -> AsyncGenerator[Tuple[int, np.ndarray], None]:
+        """
+        自适应帧生成器 - 最新帧优先策略
+        
+        当推理速度跟不上视频帧率时，自动丢弃旧帧，只处理最新帧。
+        这样可以保证实时性，避免延迟累积。
+        
+        Args:
+            target_fps: 目标帧率
+            
+        Yields:
+            (帧ID, 帧数据)
+        """
+        if self._source_info is None:
+            logger.error("未打开任何视觉源")
+            return
+        
+        self._is_running = True
+        self._is_paused = False
+        frame_id = 0
+        frame_interval = 1.0 / target_fps if target_fps > 0 else 0
+        last_frame_time = time.perf_counter()
+        
+        # 启动后台帧读取任务
+        read_task = asyncio.create_task(self._frame_reader_loop())
+        
+        try:
+            while self._is_running:
+                if self._is_paused:
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # 从队列获取最新帧
+                frame = None
+                async with self._queue_lock:
+                    if self._frame_queue:
+                        # 取最新帧，丢弃旧帧
+                        frame = self._frame_queue[-1]
+                        self._frame_queue.clear()
+                
+                if frame is None:
+                    # 队列空，等待新帧
+                    await asyncio.sleep(0.01)
+                    continue
+                
+                frame_id += 1
+                yield frame_id, frame
+                
+                # 图像源只返回一帧
+                if self._source_info.source_type == SourceType.IMAGE:
+                    break
+                
+                # 精确帧率控制
+                elapsed = time.perf_counter() - last_frame_time
+                if elapsed < frame_interval:
+                    await asyncio.sleep(frame_interval - elapsed)
+                last_frame_time = time.perf_counter()
+        
+        finally:
+            read_task.cancel()
+            try:
+                await read_task
+            except asyncio.CancelledError:
+                pass
+            self._is_running = False
+    
+    async def _frame_reader_loop(self) -> None:
+        """
+        后台帧读取循环
+        
+        持续从视频源读取帧并放入队列。
+        使用线程池执行同步的OpenCV读取，避免阻塞事件循环。
+        """
+        # 创建线程池用于帧读取
+        self._read_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="frame_reader")
+        loop = asyncio.get_event_loop()
+        
+        try:
+            while self._is_running:
+                if self._is_paused:
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # 在线程池中执行同步的帧读取，避免阻塞事件循环
+                ret, frame = await loop.run_in_executor(
+                    self._read_executor,
+                    self.read_frame
+                )
+                
+                if ret and frame is not None:
+                    async with self._queue_lock:
+                        self._frame_queue.append(frame)
+                else:
+                    if self._source_info and self._source_info.source_type == SourceType.VIDEO:
+                        # 视频结束
+                        logger.info("视频帧读取完毕")
+                        self._is_running = False
+                        break
+                    await asyncio.sleep(0.01)
+                
+                # 让出控制权，确保其他协程有机会执行
+                await asyncio.sleep(0)
+        finally:
+            # 关闭线程池
+            if self._read_executor:
+                self._read_executor.shutdown(wait=False)
+                self._read_executor = None
     
     def pause(self) -> None:
         """暂停读取"""
@@ -324,9 +453,49 @@ class SourceManager:
         self._source_info.current_frame = frame_number
         return True
     
+    def get_first_frame(self) -> Optional[np.ndarray]:
+        """
+        获取第一帧（用于预览）
+        
+        对于图像源，返回图像本身
+        对于视频源，seek到第一帧并读取
+        
+        Returns:
+            第一帧图像，失败返回None
+        """
+        if self._source_info is None:
+            return None
+        
+        if self._source_info.source_type == SourceType.IMAGE:
+            return self._current_frame.copy() if self._current_frame is not None else None
+        
+        if self._source_info.source_type == SourceType.VIDEO:
+            if self._capture is None or not self._capture.isOpened():
+                return None
+            
+            # 保存当前位置
+            current_pos = int(self._capture.get(cv2.CAP_PROP_POS_FRAMES))
+            
+            # 跳转到第一帧
+            self._capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = self._capture.read()
+            
+            # 恢复位置
+            self._capture.set(cv2.CAP_PROP_POS_FRAMES, current_pos)
+            
+            if ret:
+                return frame
+        
+        return None
+    
     def close(self) -> None:
         """关闭视觉源"""
         self.stop()
+        
+        # 关闭帧读取线程池
+        if self._read_executor is not None:
+            self._read_executor.shutdown(wait=False)
+            self._read_executor = None
         
         if self._capture is not None:
             self._capture.release()
@@ -334,6 +503,10 @@ class SourceManager:
         
         self._current_frame = None
         self._source_info = None
+        
+        # 清除帧队列，防止旧帧残留
+        self._frame_queue.clear()
+        
         logger.info("视觉源已关闭")
     
     @staticmethod

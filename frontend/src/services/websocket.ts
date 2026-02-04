@@ -1,6 +1,10 @@
-// WebSocket服务
+/**
+ * WebSocket服务
+ * 
+ * 支持JSON和二进制帧传输
+ */
 
-import type { WSMessage } from '../types';
+import type { WSMessage, FrameMessage, FrameHeaderMessage } from '@/types';
 
 type MessageHandler = (message: WSMessage) => void;
 type ConnectionHandler = (connected: boolean) => void;
@@ -13,6 +17,9 @@ class WebSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 2000;
+  
+  /** 等待二进制数据的帧头部 */
+  private pendingHeader: FrameHeaderMessage | null = null;
   
   connect(): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -32,10 +39,41 @@ class WebSocketService {
         this.notifyConnectionChange(true);
       };
       
-      this.ws.onmessage = (event) => {
+      this.ws.onmessage = async (event) => {
         try {
-          const message = JSON.parse(event.data) as WSMessage;
-          this.notifyMessage(message);
+          if (typeof event.data === 'string') {
+            // JSON消息
+            const message = JSON.parse(event.data) as WSMessage | FrameHeaderMessage;
+            
+            if (message.type === 'frame_header') {
+              // 保存头部，等待二进制数据
+              this.pendingHeader = message as FrameHeaderMessage;
+            } else {
+              this.notifyMessage(message as WSMessage);
+            }
+          } else if (event.data instanceof Blob) {
+            // 二进制图像数据
+            if (this.pendingHeader) {
+              const header = this.pendingHeader;
+              this.pendingHeader = null;
+              
+              // 创建Object URL，避免Base64转换
+              const imageUrl = URL.createObjectURL(event.data);
+              
+              // 构建帧消息
+              const frameMessage: FrameMessage = {
+                type: 'frame',
+                timestamp: header.timestamp,
+                frame_id: header.frame_id,
+                image: imageUrl,
+                detections: header.detections,
+                emotions: header.emotions,
+                isObjectUrl: true,  // 标记为Object URL
+              };
+              
+              this.notifyMessage(frameMessage);
+            }
+          }
         } catch (error) {
           console.error('解析WebSocket消息失败:', error);
         }

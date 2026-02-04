@@ -35,6 +35,11 @@ export interface PerformanceConfig {
   skip_frames: number;
   async_inference: boolean;
   output_quality: number;
+  // 新增性能参数
+  use_binary_ws?: boolean;
+  inference_threads?: number;
+  frame_buffer_size?: number;
+  adaptive_skip?: boolean;
 }
 
 export interface PipelineConfig {
@@ -84,5 +89,9 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     skip_frames: 0,
     async_inference: true,
     output_quality: 80,
+    use_binary_ws: true,
+    inference_threads: 2,
+    frame_buffer_size: 2,
+    adaptive_skip: true,
   },
 };

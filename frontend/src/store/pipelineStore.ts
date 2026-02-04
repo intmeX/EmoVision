@@ -50,11 +50,24 @@ export const usePipelineStore = create<PipelineStore>((set) => ({
   detectionCount: 0,
   
   // Actions
-  setState: (state) => set({ state }),
+  setState: (state) => {
+    set({ state });
+    // 当状态变为idle时，不重置帧数据，这样可以保留预览帧
+    if (state === 'idle') {
+      // 不清空帧数据，保持当前帧显示
+    }
+  },
   
   setConnected: (connected) => set({ connected }),
   
-  setSourceInfo: (sourceInfo) => set({ sourceInfo }),
+  setSourceInfo: (sourceInfo) => set({ 
+    sourceInfo,
+    // 当视觉源改变时，不清空帧数据以保留预览帧，直到新帧到达
+    // currentFrame: null,
+    // frameId: 0,
+    detections: [],
+    emotions: [],
+  }),
   
   updateFrame: (frame) => set({
     currentFrame: frame.image,

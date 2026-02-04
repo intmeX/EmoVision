@@ -13,8 +13,12 @@ from pydantic import BaseModel
 
 from ..deps import get_pipeline
 from ...config import settings
-from ...core import Pipeline, SourceType
+from ...core import Pipeline, SourceManager
 from ...schemas.common import ApiResponse
+import base64
+import cv2
+import numpy as np
+import time
 
 router = APIRouter()
 
@@ -39,6 +43,24 @@ class CameraInfo(BaseModel):
     """摄像头信息"""
     id: int
     available: bool = True
+
+
+def encode_frame_to_base64(frame: np.ndarray, quality: int = 80) -> str:
+    """
+    将图像帧编码为base64字符串
+    
+    Args:
+        frame: 图像帧 (BGR format)
+        quality: JPEG压缩质量
+        
+    Returns:
+        base64编码的JPEG图像字符串
+    """
+    encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+    _, buffer = cv2.imencode('.jpg', frame, encode_params)
+    # 转换为bytes再进行base64编码
+    buffer_bytes = np.array(buffer).tobytes()
+    return base64.b64encode(buffer_bytes).decode('utf-8')
 
 
 @router.post("/upload", response_model=ApiResponse[SourceInfo])
@@ -76,9 +98,8 @@ async def upload_file(
         shutil.copyfileobj(file.file, f)
     
     # 如果流水线正在运行，则停止它，因为在切换视觉源后需要重新启动
-    original_state = pipeline.state
     if pipeline.state.value == "running":
-        pipeline.stop()
+        await pipeline.stop()
     
     # 打开视觉源
     source_manager = pipeline.source_manager
@@ -94,6 +115,26 @@ async def upload_file(
     
     info = source_manager.source_info
     
+    # 尝试获取预览帧并发送到WebSocket（如果存在回调）
+    preview_frame = source_manager._current_frame
+    if preview_frame is not None and pipeline._on_frame_callback:
+        # 编码预览帧
+        preview_image_base64 = encode_frame_to_base64(preview_frame)
+        
+        # 构建帧消息
+        from ...schemas.websocket import FrameMessage
+        preview_message = FrameMessage(
+            timestamp=time.time(),
+            frame_id=0,  # 预览帧ID为0
+            image=preview_image_base64,
+            detections=[],  # 空检测列表
+            emotions=[]     # 空情绪列表
+        )
+        
+        # 异步发送预览帧
+        import asyncio
+        asyncio.create_task(pipeline._on_frame_callback(preview_message))
+
     # 如果原先是运行状态，现在视觉源已更改，应保持在idle状态
     # 实际的重启应该通过WebSocket命令来完成
     if info:
@@ -119,9 +160,8 @@ async def set_camera(
 ) -> ApiResponse[SourceInfo]:
     """设置摄像头源"""
     # 如果流水线正在运行，则停止它，因为在切换视觉源后需要重新启动
-    original_state = pipeline.state
     if pipeline.state.value == "running":
-        pipeline.stop()
+        await pipeline.stop()
     
     source_manager = pipeline.source_manager
     
@@ -151,8 +191,6 @@ async def set_camera(
 @router.get("/list", response_model=ApiResponse[List[CameraInfo]])
 async def list_cameras() -> ApiResponse[List[CameraInfo]]:
     """列出可用摄像头"""
-    from ...core import SourceManager
-    
     camera_ids = SourceManager.list_cameras()
     cameras = [CameraInfo(id=cid) for cid in camera_ids]
     
@@ -200,3 +238,6 @@ async def close_source(
     """关闭当前视觉源"""
     pipeline.source_manager.close()
     return ApiResponse(message="视觉源已关闭")
+
+
+
