@@ -16,22 +16,46 @@ import {
   X,
 } from 'lucide-react';
 import { usePipeline, useWebSocket } from '../../hooks';
-import { usePipelineStore } from '../../store';
+import { usePipelineStore, useResultsStore } from '../../store';
 import clsx from 'clsx';
 import { getSourceTypeLabel } from '../../utils/helpers';
 import { AdvancedSettingsPanel } from '../config/AdvancedSettingsPanel';
+import { ResultsControlSection } from '../results';
+import { frameHistoryRecorder } from '../../services/frameHistoryRecorder';
 
 export function Sidebar() {
   const { state, sourceInfo, connected } = usePipelineStore();
+  const resultsActions = useResultsStore((s) => s.actions);
   const { uploadFile, setCamera, closeSource, isLoading } = usePipeline();
   const { sendControl } = useWebSocket();
   const [showSourcePanel, setShowSourcePanel] = useState(true);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   
-  const start = useCallback(() => sendControl('start'), [sendControl]);
-  const stop = useCallback(() => sendControl('stop'), [sendControl]);
-  const pause = useCallback(() => sendControl('pause'), [sendControl]);
-  const resume = useCallback(() => sendControl('resume'), [sendControl]);
+  const start = useCallback(() => {
+    // 开始录制会话 - 使用统一的 sessionId
+    const sessionId = resultsActions.startSession(sourceInfo);
+    frameHistoryRecorder.startSession(sessionId, sourceInfo);
+    sendControl('start');
+  }, [sendControl, sourceInfo, resultsActions]);
+  
+  const stop = useCallback(() => {
+    // 停止录制（不清空历史，保留会话数据）
+    sendControl('stop');
+    frameHistoryRecorder.stopSession();
+    resultsActions.endCurrentSession();
+  }, [sendControl, resultsActions]);
+  
+  const pause = useCallback(() => {
+    sendControl('pause');
+    // 暂停时保持当前状态，不自动进入回看模式
+    // 用户可以手动点击历史记录进入回看
+  }, [sendControl]);
+  
+  const resume = useCallback(() => {
+    sendControl('resume');
+    // 恢复实时模式
+    resultsActions.resumeLive();
+  }, [sendControl, resultsActions]);
   
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -181,9 +205,17 @@ export function Sidebar() {
            </div>
          </div>
        )}
+       
+       {/* 结果记录控制区 */}
+       <div className="p-4 border-b border-border-primary">
+         <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">
+           结果记录
+         </h3>
+         <ResultsControlSection />
+       </div>
       
-      {/* 底部填充 */}
-      <div className="flex-1" />
+       {/* 底部填充 */}
+       <div className="flex-1" />
       
        {/* 设置入口 */}
        <div className="p-4 border-t border-border-primary">

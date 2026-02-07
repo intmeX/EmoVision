@@ -1,6 +1,7 @@
 export * from './detection';
 export * from './emotion';
 export * from './config';
+export * from './results';
 
 // 通用类型
 export type PipelineState = 'idle' | 'running' | 'paused' | 'error';
@@ -71,4 +72,18 @@ export interface ErrorMessage {
   details?: Record<string, unknown> | null;
 }
 
-export type WSMessage = FrameMessage | StatusMessage | StatsMessage | ErrorMessage;
+/**
+ * 事件消息（用于EOS等生命周期事件）
+ */
+export interface EventMessage {
+  type: 'event';
+  timestamp: number;
+  /** 事件名称 */
+  name: 'eos' | 'recording_started' | 'recording_stopped';
+  /** 事件原因 */
+  reason?: 'source_eof' | 'user_stop' | 'error' | null;
+  /** 相关帧ID */
+  frame_id?: number | null;
+}
+
+export type WSMessage = FrameMessage | StatusMessage | StatsMessage | ErrorMessage | EventMessage;

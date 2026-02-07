@@ -92,7 +92,7 @@ class VisualizerConfig(BaseModel):
 
 class PerformanceConfig(BaseModel):
     """性能配置"""
-    target_fps: int = Field(default=30, ge=1, le=120, description="目标帧率")
+    target_fps: int = Field(default=0, ge=-1, le=120, description="目标帧率")
     skip_frames: int = Field(default=0, ge=0, le=10, description="跳帧数")
     async_inference: bool = Field(default=True, description="异步推理")
     output_quality: int = Field(default=80, ge=10, le=100, description="输出JPEG质量")

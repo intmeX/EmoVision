@@ -5,10 +5,11 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { wsService } from '@/services/websocket';
+import { wsService, type FrameMessageWithBlob } from '@/services/websocket';
 import { frameManager } from '@/services/frameManager';
-import { usePipelineStore } from '@/store';
-import type { WSMessage, FrameMessage } from '@/types';
+import { frameHistoryRecorder } from '@/services/frameHistoryRecorder';
+import { usePipelineStore, useResultsStore } from '@/store';
+import type { WSMessage, EventMessage } from '@/types';
 
 export function useWebSocket() {
   const { 
@@ -18,11 +19,15 @@ export function useWebSocket() {
     updateStats 
   } = usePipelineStore();
   
+  const resultsActions = useResultsStore((state) => state.actions);
+  
   const handleMessage = useCallback((message: WSMessage) => {
     switch (message.type) {
       case 'frame': {
         // 帧数据通过FrameManager分发，不触发React重渲染
-        const frameMsg = message as FrameMessage;
+        const frameMsg = message as FrameMessageWithBlob;
+        
+        // 更新帧管理器（用于实时显示）
         frameManager.updateFrame({
           image: frameMsg.image,
           frameId: frameMsg.frame_id,
@@ -30,6 +35,17 @@ export function useWebSocket() {
           emotions: frameMsg.emotions,
           timestamp: frameMsg.timestamp,
         });
+        
+        // 通知历史记录器（用于回看和导出）
+        if (frameMsg.imageBlob) {
+          frameHistoryRecorder.onFrame({
+            frameId: frameMsg.frame_id,
+            timestamp: frameMsg.timestamp,
+            detections: frameMsg.detections,
+            emotions: frameMsg.emotions,
+            imageBlob: frameMsg.imageBlob,
+          });
+        }
         break;
       }
       case 'status':
@@ -39,11 +55,21 @@ export function useWebSocket() {
       case 'stats':
         updateStats(message);
         break;
+      case 'event': {
+        // 处理生命周期事件
+        const eventMsg = message as EventMessage;
+        if (eventMsg.name === 'eos') {
+          // 视频/图像播放结束
+          console.log('收到EOS事件:', eventMsg.reason, 'frame_id:', eventMsg.frame_id);
+          resultsActions.markEnded();
+        }
+        break;
+      }
       case 'error':
         console.error('流水线错误:', message.message);
         break;
     }
-  }, [setState, setSourceInfo, updateStats]);
+  }, [setState, setSourceInfo, updateStats, resultsActions]);
   
   const handleConnection = useCallback((connected: boolean) => {
     setConnected(connected);

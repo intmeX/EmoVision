@@ -2,17 +2,22 @@
  * 视频播放器组件
  * 
  * 使用Canvas渲染帧数据，避免React重渲染
+ * 支持实时模式和回看模式
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { usePipelineStore } from '@/store';
+import { usePipelineStore, useResultsStore } from '@/store';
 import { useFrame } from '@/hooks/useFrame';
 import { frameBuffer } from '@/services/frameBuffer';
+import { historyRepository } from '@/services/historyRepository';
 import { Video } from 'lucide-react';
 import { getSourceTypeLabel } from '@/utils/helpers';
+import type { HistoryFrameWithImage } from '@/types';
 
 export function VideoPlayer() {
   const { sourceInfo, state } = usePipelineStore();
+  const { reviewMode, selectedFrameId } = useResultsStore();
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const rafIdRef = useRef<number>(0);
@@ -21,6 +26,12 @@ export function VideoPlayer() {
   
   // 用于非运行状态显示的静态帧
   const [staticFrame, setStaticFrame] = useState<string | null>(null);
+  
+  // 回看帧数据
+  const [reviewFrame, setReviewFrame] = useState<HistoryFrameWithImage | null>(null);
+
+  // 判断是否处于回看模式
+  const isReviewMode = reviewMode === 'paused_review' || reviewMode === 'ended_review';
 
   // 更新尺寸
   useEffect(() => {
@@ -36,6 +47,46 @@ export function VideoPlayer() {
     setStaticFrame(frame.image);
   }, []));
 
+  // 回看模式：加载选中的历史帧
+  useEffect(() => {
+    if (!isReviewMode || selectedFrameId === null) {
+      setReviewFrame(null);
+      return;
+    }
+    
+    // 异步加载帧数据
+    historyRepository.getFrame(selectedFrameId).then((frame) => {
+      setReviewFrame(frame);
+      
+      // 更新尺寸
+      if (frame?.meta.imageRef) {
+        setDimensions({
+          width: frame.meta.imageRef.width || 640,
+          height: frame.meta.imageRef.height || 480,
+        });
+      }
+    });
+  }, [isReviewMode, selectedFrameId]);
+
+  // 回看模式：渲染历史帧到Canvas
+  useEffect(() => {
+    if (!isReviewMode || !reviewFrame || !canvasRef.current) {
+      return;
+    }
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    
+    // 使用createImageBitmap高效解码
+    createImageBitmap(reviewFrame.blob).then((bitmap) => {
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+    }).catch((e) => {
+      console.error('回看帧解码错误:', e);
+    });
+  }, [isReviewMode, reviewFrame]);
+
   // 初始化Canvas上下文 - 当Canvas挂载或尺寸变化时
   useEffect(() => {
     if (canvasRef.current) {
@@ -46,8 +97,17 @@ export function VideoPlayer() {
     }
   }, [dimensions]); // 当尺寸变化时重新获取上下文
 
-  // 渲染循环
+  // 渲染循环（仅实时模式）
   useEffect(() => {
+    // 回看模式不启动渲染循环
+    if (isReviewMode) {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      return;
+    }
+    
     if (state !== 'running') {
       // 非运行状态，停止渲染循环
       if (rafIdRef.current) {
@@ -115,7 +175,7 @@ export function VideoPlayer() {
       }
       frameBuffer.clear();
     };
-  }, [state]);
+  }, [state, isReviewMode]);
 
   // 对摄像头源处理实时视频流
   useEffect(() => {
@@ -174,20 +234,21 @@ export function VideoPlayer() {
 
   // 图片/视频源：Canvas始终存在，根据状态显示不同内容
   const isRunning = state === 'running';
-  const showStaticFrame = !isRunning && staticFrame;
-  const showPlaceholder = !isRunning && !staticFrame;
+  const showCanvas = isRunning || isReviewMode;
+  const showStaticFrame = !isRunning && !isReviewMode && staticFrame;
+  const showPlaceholder = !isRunning && !isReviewMode && !staticFrame;
 
   return (
     <div className="w-full h-full flex items-center justify-center bg-black rounded-lg overflow-hidden relative">
-      {/* Canvas始终渲染，运行时显示 */}
+      {/* Canvas：运行时或回看时显示 */}
       <canvas
         ref={canvasRef}
         width={dimensions.width}
         height={dimensions.height}
-        className={`max-w-full max-h-full object-contain ${isRunning ? '' : 'hidden'}`}
+        className={`max-w-full max-h-full object-contain ${showCanvas ? '' : 'hidden'}`}
       />
       
-      {/* 非运行状态：显示静态帧 */}
+      {/* 非运行状态且非回看：显示静态帧 */}
       {showStaticFrame && (
         <img
           src={staticFrame.startsWith('blob:') ? staticFrame : `data:image/jpeg;base64,${staticFrame}`}
@@ -206,6 +267,13 @@ export function VideoPlayer() {
             {getSourceTypeLabel(sourceInfo.source_type)}已就绪
           </p>
           <p className="text-gray-500 text-sm mt-2">点击启动开始处理</p>
+        </div>
+      )}
+      
+      {/* 回看模式指示器 */}
+      {isReviewMode && (
+        <div className="absolute top-2 left-2 px-2 py-1 bg-blue-600/80 rounded text-xs text-white">
+          回看模式
         </div>
       )}
     </div>

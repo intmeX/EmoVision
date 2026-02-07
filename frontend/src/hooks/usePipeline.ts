@@ -3,7 +3,9 @@
 import { useCallback, useState } from 'react';
 import { api } from '../services/api';
 import { wsService } from '../services/websocket';
-import { usePipelineStore } from '../store';
+import { usePipelineStore, useResultsStore } from '../store';
+import { frameHistoryRecorder } from '../services/frameHistoryRecorder';
+import { historyRepository } from '../services/historyRepository';
 import type { SourceInfo } from '../types';
 
 export function usePipeline() {
@@ -67,6 +69,13 @@ export function usePipeline() {
     try {
       setIsLoading(true);
       setError(null);
+      
+      // 切换视觉源时：清空所有历史记录并重置回看模式
+      const resultsActions = useResultsStore.getState().actions;
+      frameHistoryRecorder.clearSession();
+      historyRepository.clear();
+      resultsActions.clearAllSessions();
+      
       const response = await api.uploadFile(file);
       setSourceInfo(response.data);
       return response.data;
@@ -82,6 +91,13 @@ export function usePipeline() {
     try {
       setIsLoading(true);
       setError(null);
+      
+      // 切换视觉源时：清空所有历史记录并重置回看模式
+      const resultsActions = useResultsStore.getState().actions;
+      frameHistoryRecorder.clearSession();
+      historyRepository.clear();
+      resultsActions.clearAllSessions();
+      
       const response = await api.setCamera(cameraId);
       setSourceInfo(response.data);
       return response.data;
@@ -97,6 +113,13 @@ export function usePipeline() {
     try {
       setIsLoading(true);
       setError(null);
+      
+      // 关闭视觉源时：清空所有历史记录并重置回看模式
+      const resultsActions = useResultsStore.getState().actions;
+      frameHistoryRecorder.clearSession();
+      historyRepository.clear();
+      resultsActions.clearAllSessions();
+      
       await api.closeSource();
       setSourceInfo(null);
     } catch (err) {

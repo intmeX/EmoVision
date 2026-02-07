@@ -54,16 +54,16 @@ cd frontend && npx tsc --noEmit
 ```
 backend/app/
   api/        # Routes, dependencies
-  core/       # Pipeline, session management
+  core/       # Pipeline, SourceManager, SessionManager
   modules/    # detector/, recognizer/, visualizer/
   schemas/    # Pydantic models
-  utils/      # Logger, device utils
+  utils/      # Logger, device utils, frame_utils
 
 frontend/src/
-  components/ # UI components
+  components/ # UI components (video/, config/, dashboard/)
   hooks/      # useWebSocket, useFrame, usePipeline
-  store/      # Zustand stores
-  services/   # API, WebSocket, frameManager
+  store/      # Zustand stores (pipelineStore, configStore)
+  services/   # API, WebSocket, frameManager, frameBuffer
   types/      # TypeScript definitions
 ```
 
@@ -71,38 +71,56 @@ frontend/src/
 
 ### Async Frame Processing (Backend)
 ```python
-# Use ThreadPoolExecutor for CPU-bound tasks to avoid blocking event loop
+# Use ThreadPoolExecutor for CPU-bound OpenCV/ML tasks
 loop = asyncio.get_event_loop()
 result = await loop.run_in_executor(self._executor, self._sync_function, args)
 ```
 
-### Binary WebSocket (Backend → Frontend)
+### Source Switching - Clear All Buffers (Backend)
 ```python
-# Send: JSON header first, then binary JPEG bytes
+# In source_manager.close() - MUST clear frame queue to prevent stale frames
+self._frame_queue.clear()
+
+# In pipeline.stop() - MUST cancel pending encode tasks
+if self._pending_encode is not None:
+    self._pending_encode.cancel()
+```
+
+### Binary WebSocket Protocol
+```python
+# Backend: Send JSON header first, then binary JPEG bytes
 await conn.send_text(header.model_dump_json())
 await conn.send_bytes(image_bytes)
+
+# Frontend: Receive header, then blob, create Object URL
+const imageUrl = URL.createObjectURL(blob);
 ```
 
 ### Canvas Rendering (Frontend)
 ```typescript
-// Always keep Canvas in DOM, use hidden class to toggle visibility
-// Initialize context when state changes to 'running'
+// Canvas MUST always be in DOM - use hidden class, NOT conditional render
+<canvas className={isRunning ? '' : 'hidden'} />
+
+// Use createImageBitmap for efficient decoding
 const bitmap = await createImageBitmap(blob);
-ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+ctx.drawImage(bitmap, 0, 0, width, height);
 bitmap.close();
+URL.revokeObjectURL(url);  // Clean up Object URLs
 ```
 
 ## DO NOT
 - Use `any`, `@ts-ignore`, `as any` in TypeScript
-- Block event loop with sync I/O in async handlers
-- Hardcode secrets - use environment variables
+- Block event loop with sync I/O (use `run_in_executor`)
 - Conditionally render Canvas (breaks ref binding)
+- Forget to clear `_frame_queue` when switching sources
+- Hardcode secrets - use environment variables
 
 ## DO
 - Run `ruff check` / `npm run lint` before commits
-- Use `run_in_executor` for OpenCV/ML inference
+- Clear all frame buffers when switching visual sources
+- Cancel pending async tasks in `stop()` methods
 - Handle WebSocket disconnection gracefully
-- Use `createImageBitmap` for efficient frame decoding
+- Use `createImageBitmap` + `bitmap.close()` for frames
 
 ---
 
@@ -158,16 +176,29 @@ cd frontend && npx tsc --noEmit
 result = await loop.run_in_executor(self._executor, sync_func, args)
 ```
 
-### 二进制 WebSocket
+### 视觉源切换 - 清除所有缓冲区 (后端)
 ```python
-# 先发 JSON 头部，再发二进制图像
+# source_manager.close() 中必须清除帧队列
+self._frame_queue.clear()
+
+# pipeline.stop() 中必须取消待处理的编码任务
+if self._pending_encode is not None:
+    self._pending_encode.cancel()
+```
+
+### 二进制 WebSocket 协议
+```python
+# 后端：先发 JSON 头部，再发二进制图像
 await conn.send_text(header_json)
 await conn.send_bytes(image_bytes)
 ```
 
 ### Canvas 渲染 (前端)
 ```typescript
-// Canvas 必须始终在 DOM 中，用 hidden 控制显示
+// Canvas 必须始终在 DOM 中，用 hidden 控制显示，不要条件渲染
+<canvas className={isRunning ? '' : 'hidden'} />
+
+// 使用 createImageBitmap 高效解码
 const bitmap = await createImageBitmap(blob);
 ctx.drawImage(bitmap, 0, 0, width, height);
 bitmap.close();
@@ -176,11 +207,13 @@ bitmap.close();
 ## 禁止事项
 - TypeScript 中使用 `any`、`@ts-ignore`
 - 在异步处理器中阻塞事件循环
-- 硬编码密钥
 - 条件渲染 Canvas（会破坏 ref 绑定）
+- 切换视觉源时忘记清除 `_frame_queue`
+- 硬编码密钥
 
 ## 推荐做法
 - 提交前运行 `ruff check` / `npm run lint`
-- OpenCV/ML 推理使用 `run_in_executor`
+- 切换视觉源时清除所有帧缓冲区
+- 在 `stop()` 方法中取消待处理的异步任务
 - 优雅处理 WebSocket 断连
-- 使用 `createImageBitmap` 高效解码帧
+- 使用 `createImageBitmap` + `bitmap.close()` 处理帧

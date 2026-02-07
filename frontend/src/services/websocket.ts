@@ -9,6 +9,14 @@ import type { WSMessage, FrameMessage, FrameHeaderMessage } from '@/types';
 type MessageHandler = (message: WSMessage) => void;
 type ConnectionHandler = (connected: boolean) => void;
 
+/**
+ * 扩展的帧消息，包含原始Blob引用
+ */
+export interface FrameMessageWithBlob extends FrameMessage {
+  /** 原始图像Blob（用于历史记录存储） */
+  imageBlob?: Blob;
+}
+
 class WebSocketService {
   private ws: WebSocket | null = null;
   private messageHandlers: Set<MessageHandler> = new Set();
@@ -57,11 +65,14 @@ class WebSocketService {
               const header = this.pendingHeader;
               this.pendingHeader = null;
               
-              // 创建Object URL，避免Base64转换
-              const imageUrl = URL.createObjectURL(event.data);
+              // 保留原始Blob引用，用于历史记录存储
+              const imageBlob = event.data;
               
-              // 构建帧消息
-              const frameMessage: FrameMessage = {
+              // 创建Object URL，避免Base64转换
+              const imageUrl = URL.createObjectURL(imageBlob);
+              
+              // 构建帧消息（包含Blob引用）
+              const frameMessage: FrameMessageWithBlob = {
                 type: 'frame',
                 timestamp: header.timestamp,
                 frame_id: header.frame_id,
@@ -69,6 +80,7 @@ class WebSocketService {
                 detections: header.detections,
                 emotions: header.emotions,
                 isObjectUrl: true,  // 标记为Object URL
+                imageBlob,  // 保留Blob引用
               };
               
               this.notifyMessage(frameMessage);

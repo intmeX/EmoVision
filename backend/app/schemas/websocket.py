@@ -36,7 +36,7 @@ class FrameMessage(BaseModel):
 
 class BinaryFrameHeader(BaseModel):
     """二进制帧头部消息（用于二进制WebSocket传输）
-    
+
     传输协议：
     1. 先发送此JSON头部
     2. 紧接着发送二进制JPEG图像数据
@@ -85,5 +85,18 @@ class ControlMessage(BaseModel):
     )
 
 
+class EventMessage(BaseModel):
+    """事件消息（用于EOS等生命周期事件）"""
+    type: Literal["event"] = "event"
+    timestamp: float = Field(..., description="时间戳")
+    name: Literal["eos", "recording_started", "recording_stopped"] = Field(
+        ..., description="事件名称"
+    )
+    reason: Literal["source_eof", "user_stop", "error"] | None = Field(
+        default=None, description="事件原因"
+    )
+    frame_id: int | None = Field(default=None, description="相关帧ID")
+
+
 # WebSocket消息联合类型
-WSMessage = Union[FrameMessage, StatusMessage, StatsMessage, ErrorMessage]
+WSMessage = Union[FrameMessage, StatusMessage, StatsMessage, ErrorMessage, EventMessage]
