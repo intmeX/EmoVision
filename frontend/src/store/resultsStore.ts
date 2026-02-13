@@ -24,8 +24,11 @@ interface SessionData {
   sessionId: string;
   summary: ResultsSessionSummary;
   index: FrameIndex;
-  /** 每帧的情绪数据（用于时间轴可视化） */
-  frameEmotions: Map<number, { dominant: string | null; count: number }>;
+  /** 每帧的情绪数据（用于时间轴可视化和统计） */
+  frameEmotions: Map<number, { 
+    dominant: string | null;  // 帧中最主要的情绪（用于时间轴染色）
+    emotions: Array<{ emotion: string; confidence: number }>;  // 所有检测目标的情绪（用于统计）
+  }>;
 }
 
 interface ResultsStore {
@@ -130,22 +133,6 @@ const defaultRecordingPolicy: RecordingPolicy = {
     storeThumbnail: false,
   },
 };
-
-/**
- * 获取主情绪
- */
-function getDominantEmotion(emotions: StoredFrameMeta['emotions']): string | null {
-  if (!emotions || emotions.length === 0) return null;
-  let maxConf = 0;
-  let dominant: string | null = null;
-  for (const e of emotions) {
-    if (e.confidence > maxConf) {
-      maxConf = e.confidence;
-      dominant = e.dominant_emotion;
-    }
-  }
-  return dominant;
-}
 
 export const useResultsStore = create<ResultsStore>((set, get) => ({
   // 初始状态
@@ -318,13 +305,32 @@ export const useResultsStore = create<ResultsStore>((set, get) => ({
           return state;
         }
 
-        // 计算情绪数据
-        const dominant = emotions ? getDominantEmotion(emotions) : null;
-        const count = emotions?.length ?? 0;
+        // 计算帧中最主要的情绪（用于时间轴染色）
+        // 统计所有检测目标的情绪，选择出现次数最多的
+        const emotionCounts: Record<string, number> = {};
+        const allEmotions: Array<{ emotion: string; confidence: number }> = [];
+        
+        if (emotions && emotions.length > 0) {
+          for (const e of emotions) {
+            const emotion = e.dominant_emotion;
+            emotionCounts[emotion] = (emotionCounts[emotion] || 0) + 1;
+            allEmotions.push({ emotion, confidence: e.confidence });
+          }
+        }
+        
+        // 找出出现次数最多的情绪
+        let dominant: string | null = null;
+        let maxCount = 0;
+        for (const [emotion, count] of Object.entries(emotionCounts)) {
+          if (count > maxCount) {
+            maxCount = count;
+            dominant = emotion;
+          }
+        }
 
         // 创建新的 frameEmotions Map
         const newFrameEmotions = new Map(session.frameEmotions);
-        newFrameEmotions.set(frameId, { dominant, count });
+        newFrameEmotions.set(frameId, { dominant, emotions: allEmotions });
 
         const updatedSession: SessionData = {
           ...session,

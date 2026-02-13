@@ -72,9 +72,9 @@ class VisualizerConfig(BaseModel):
     show_bounding_box: bool = Field(default=True, description="显示边界框")
     show_emotion_label: bool = Field(default=True, description="显示情绪标签")
     show_confidence: bool = Field(default=True, description="显示置信度")
-    show_emotion_bar: bool = Field(default=True, description="显示情绪概率条")
+    show_emotion_bar: bool = Field(default=False, description="显示情绪概率条")
     box_color_by_emotion: bool = Field(default=True, description="边框颜色按情绪变化")
-    font_scale: float = Field(default=0.8, ge=0.1, le=3.0, description="字体大小")
+    font_scale: float = Field(default=1.5, ge=0.1, le=3.0, description="字体大小")
     box_thickness: int = Field(default=2, ge=1, le=10, description="边框粗细")
     emotion_colors: dict[str, str] = Field(
         default={
@@ -96,7 +96,7 @@ class PerformanceConfig(BaseModel):
     skip_frames: int = Field(default=0, ge=0, le=10, description="跳帧数")
     async_inference: bool = Field(default=True, description="异步推理")
     output_quality: int = Field(default=80, ge=10, le=100, description="输出JPEG质量")
-    
+
     # 新增性能参数
     use_binary_ws: bool = Field(default=True, description="使用二进制WebSocket传输")
     inference_threads: int = Field(default=2, ge=1, le=4, description="推理线程数")

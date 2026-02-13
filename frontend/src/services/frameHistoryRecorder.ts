@@ -47,7 +47,7 @@ class FrameHistoryRecorder {
       maxStorageMB: 300,
     },
     store: {
-      persistToIndexedDB: false,
+      persistToIndexedDB: true,  // 启用IndexedDB持久化，防止旧帧丢失
       storeFullImage: true,
       storeThumbnail: false,
     },
