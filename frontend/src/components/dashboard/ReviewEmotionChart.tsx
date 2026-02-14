@@ -13,18 +13,17 @@ import { getEmotionColor } from '@/types';
  * 情绪颜色映射（与 ResultsTimeline 保持一致）
  */
 const EMOTION_COLORS: Record<string, string> = {
-  happy: '#22c55e',
-  sad: '#3b82f6',
-  angry: '#ef4444',
-  fear: '#a855f7',
-  surprise: '#f59e0b',
-  disgust: '#84cc16',
-  neutral: '#6b7280',
-  contempt: '#f97316',
+  '开心': '#22c55e',
+  '悲伤': '#3b82f6',
+  '愤怒': '#ef4444',
+  '恐惧': '#a855f7',
+  '惊讶': '#f59e0b',
+  '厌恶': '#84cc16',
+  '中性': '#6b7280',
 };
 
 function getColor(emotion: string): string {
-  return EMOTION_COLORS[emotion.toLowerCase()] ?? getEmotionColor(emotion);
+  return EMOTION_COLORS[emotion] ?? getEmotionColor(emotion);
 }
 
 /**
@@ -129,9 +128,9 @@ export function ReviewEmotionChart() {
       {overallDistribution.length > 0 && (
         <div>
           <div className="text-xs text-gray-500 mb-2">整体情绪分布（按检测目标数）</div>
-          <div className="h-32">
+          <div className="h-64"> {/* Increased height from h-32 to h-64 */ }
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={overallDistribution} layout="vertical" margin={{ left: 60, right: 20 }}>
+              <BarChart data={overallDistribution} layout="vertical" margin={{ left: 80, right: 20 }}> {/* Increased left margin from 60 to 80 */ }
                 <XAxis 
                   type="number" 
                   tickFormatter={(v) => `${v}`}
@@ -139,8 +138,8 @@ export function ReviewEmotionChart() {
                 <YAxis 
                   type="category" 
                   dataKey="name" 
-                  width={60}
-                  tick={{ fontSize: 11 }}
+                  width={80}
+                  tick={{ fontSize: 12 }}
                 />
                 <Tooltip 
                   formatter={(value: number) => [`${value} 次 (${((value / totalDetections) * 100).toFixed(1)}%)`, '检测数']}

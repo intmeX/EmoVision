@@ -34,21 +34,40 @@ export function DetectorConfig() {
           </select>
         </div>
         
-        {/* 置信度阈值 */}
+        {/* 人脸置信度阈值 */}
         <div>
-          <label className="label">置信度阈值</label>
+          <label className="label">人脸置信度</label>
           <div className="flex items-center gap-2">
             <input
               type="range"
               min="0"
               max="1"
               step="0.05"
-              value={detector.confidence_threshold}
-              onChange={(e) => updateDetector({ confidence_threshold: Number(e.target.value) })}
+              value={detector.face_confidence_threshold}
+              onChange={(e) => updateDetector({ face_confidence_threshold: Number(e.target.value) })}
               className="flex-1"
             />
             <span className="text-sm text-gray-400 w-12">
-              {detector.confidence_threshold.toFixed(2)}
+              {detector.face_confidence_threshold.toFixed(2)}
+            </span>
+          </div>
+        </div>
+        
+        {/* 人体置信度阈值 */}
+        <div>
+          <label className="label">人体置信度</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={detector.person_confidence_threshold}
+              onChange={(e) => updateDetector({ person_confidence_threshold: Number(e.target.value) })}
+              className="flex-1"
+            />
+            <span className="text-sm text-gray-400 w-12">
+              {detector.person_confidence_threshold.toFixed(2)}
             </span>
           </div>
         </div>

@@ -25,7 +25,6 @@ def load_weights_init(model, model_path):
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
     model_dict.update(pretrained_dict)
     model.load_state_dict(model_dict, strict=False)
-    # model.load_state_dict(ckpt['state_dict'], strict=False)
 
 
 def weights_frozen(model):

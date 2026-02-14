@@ -15,11 +15,14 @@ import numpy as np
 from ..modules.detector import BaseDetector, Detection, YOLODetector
 from ..modules.recognizer import (
     BaseEmotionRecognizer,
+    CaerRecognizer,
+    DDENRecognizer,
+    EmoticRecognizer,
     EmotionResult,
     MockEmotionRecognizer,
 )
 from ..modules.visualizer import FrameRenderer
-from ..schemas.pipeline import PipelineConfig
+from ..schemas.pipeline import PipelineConfig, RecognizerType
 from ..schemas.websocket import (
     BinaryFrameHeader,
     DetectionPayload,
@@ -45,6 +48,7 @@ EventCallback = Callable[[EventMessage], "asyncio.Future[None]"]
 
 class PipelineState(str, Enum):
     """流水线状态"""
+
     IDLE = "idle"
     RUNNING = "running"
     PAUSED = "paused"
@@ -123,8 +127,8 @@ class Pipeline:
         self._detector = YOLODetector(self._config.detector)
         self._detector.initialize()
 
-        # 初始化识别器 (使用模拟识别器)
-        self._recognizer = MockEmotionRecognizer(self._config.recognizer)
+        # 初始化识别器（根据配置选择类型）
+        self._recognizer = self._create_recognizer()
         self._recognizer.initialize()
 
         # 初始化渲染器
@@ -134,11 +138,36 @@ class Pipeline:
         if self._use_async_inference:
             self._inference_executor = ThreadPoolExecutor(
                 max_workers=2,  # 检测+识别各一个线程
-                thread_name_prefix="inference"
+                thread_name_prefix="inference",
             )
             logger.info("异步推理已启用，线程池大小: 2")
 
         logger.info("流水线初始化完成")
+
+    def _create_recognizer(self) -> BaseEmotionRecognizer:
+        """
+        根据配置创建对应类型的情绪识别器
+
+        Returns:
+            识别器实例
+        """
+        recognizer_type = self._config.recognizer.recognizer_type
+        config = self._config.recognizer
+
+        recognizer_map = {
+            RecognizerType.MOCK: MockEmotionRecognizer,
+            RecognizerType.DDEN: DDENRecognizer,
+            RecognizerType.EMOTIC: EmoticRecognizer,
+            RecognizerType.CAER: CaerRecognizer,
+        }
+
+        recognizer_cls = recognizer_map.get(recognizer_type)
+        if recognizer_cls is None:
+            logger.warning(f"未知识别器类型: {recognizer_type}，回退到 Mock")
+            recognizer_cls = MockEmotionRecognizer
+
+        logger.info(f"创建识别器: {recognizer_type.value} ({recognizer_cls.__name__})")
+        return recognizer_cls(config)
 
     def cleanup(self) -> None:
         """清理流水线资源"""
@@ -195,8 +224,10 @@ class Pipeline:
             raise RuntimeError("流水线未初始化")
 
         # 如果是视频源，在启动前重置到开头
-        if (self._source_manager.source_info and
-            self._source_manager.source_info.source_type == 'video'):
+        if (
+            self._source_manager.source_info
+            and self._source_manager.source_info.source_type == "video"
+        ):
             self._source_manager.seek(0)
 
         self._state = PipelineState.RUNNING
@@ -225,7 +256,7 @@ class Pipeline:
                 # 使用传统帧生成器
                 frame_gen = self._source_manager.frame_generator(
                     target_fps=target_fps,
-                    skip_frames=self._config.performance.skip_frames
+                    skip_frames=self._config.performance.skip_frames,
                 )
 
             async for frame_id, frame in frame_gen:
@@ -304,17 +335,12 @@ class Pipeline:
 
             # 1. 异步执行检测
             detections = await loop.run_in_executor(
-                self._inference_executor,
-                self._detector.detect,
-                frame
+                self._inference_executor, self._detector.detect, frame
             )
 
             # 2. 异步执行识别
             emotions = await loop.run_in_executor(
-                self._inference_executor,
-                self._recognizer.predict,
-                frame,
-                detections
+                self._inference_executor, self._recognizer.predict, frame, detections
             )
 
             # 3. 异步执行渲染和编码
@@ -323,7 +349,7 @@ class Pipeline:
                 self._render_and_encode,
                 frame,
                 detections,
-                emotions
+                emotions,
             )
         else:
             # 同步推理（原有逻辑）
@@ -348,8 +374,7 @@ class Pipeline:
             if image_data is None:
                 # 同步模式下需要编码
                 image_bytes = encode_frame_bytes(
-                    rendered_frame,
-                    quality=self._config.performance.output_quality
+                    rendered_frame, quality=self._config.performance.output_quality
                 )
             else:
                 # 异步模式下已经编码
@@ -361,7 +386,7 @@ class Pipeline:
                 frame_id=frame_id,
                 image_size=len(image_bytes),
                 detections=detection_payloads,
-                emotions=emotion_payloads
+                emotions=emotion_payloads,
             )
 
             # 发送二进制帧
@@ -371,13 +396,13 @@ class Pipeline:
             # Base64传输（兼容模式）
             if image_data is None:
                 image_base64 = self._renderer.encode_frame(
-                    rendered_frame,
-                    quality=self._config.performance.output_quality
+                    rendered_frame, quality=self._config.performance.output_quality
                 )
             else:
                 # 异步模式下image_data是bytes，需要转换为base64
                 import base64
-                image_base64 = base64.b64encode(image_data).decode('utf-8')
+
+                image_base64 = base64.b64encode(image_data).decode("utf-8")
 
             # 构建消息
             frame_msg = FrameMessage(
@@ -385,7 +410,7 @@ class Pipeline:
                 frame_id=frame_id,
                 image=image_base64,
                 detections=detection_payloads,
-                emotions=emotion_payloads
+                emotions=emotion_payloads,
             )
 
             # 发送帧消息
@@ -435,17 +460,12 @@ class Pipeline:
 
         # 1. 异步执行检测
         detections = await loop.run_in_executor(
-            self._inference_executor,
-            self._detector.detect,
-            frame
+            self._inference_executor, self._detector.detect, frame
         )
 
         # 2. 异步执行识别
         emotions = await loop.run_in_executor(
-            self._inference_executor,
-            self._recognizer.predict,
-            frame,
-            detections
+            self._inference_executor, self._recognizer.predict, frame, detections
         )
 
         # 更新统计
@@ -468,7 +488,7 @@ class Pipeline:
         frame_id: int,
         frame: np.ndarray,
         detections: List[Detection],
-        emotions: List[EmotionResult]
+        emotions: List[EmotionResult],
     ) -> None:
         """
         编码并发送帧（在流水线模式下与推理并行执行）
@@ -490,7 +510,7 @@ class Pipeline:
             self._render_and_encode,
             frame,
             detections,
-            emotions
+            emotions,
         )
 
         # 构建检测和情绪载荷
@@ -505,21 +525,22 @@ class Pipeline:
                 frame_id=frame_id,
                 image_size=len(image_bytes),
                 detections=detection_payloads,
-                emotions=emotion_payloads
+                emotions=emotion_payloads,
             )
             await self._on_binary_frame_callback(header, image_bytes)
 
         elif self._on_frame_callback:
             # Base64传输（兼容模式）
             import base64
-            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
             frame_msg = FrameMessage(
                 timestamp=time.time(),
                 frame_id=frame_id,
                 image=image_base64,
                 detections=detection_payloads,
-                emotions=emotion_payloads
+                emotions=emotion_payloads,
             )
             await self._on_frame_callback(frame_msg)
 
@@ -527,7 +548,7 @@ class Pipeline:
         self,
         frame: np.ndarray,
         detections: List[Detection],
-        emotions: List[EmotionResult]
+        emotions: List[EmotionResult],
     ) -> Tuple[np.ndarray, bytes]:
         """
         渲染和编码帧（在线程池中执行）
@@ -545,8 +566,7 @@ class Pipeline:
 
         rendered = self._renderer.render(frame, detections, emotions)
         image_bytes = encode_frame_bytes(
-            rendered,
-            quality=self._config.performance.output_quality
+            rendered, quality=self._config.performance.output_quality
         )
         return rendered, image_bytes
 
@@ -557,7 +577,7 @@ class Pipeline:
             type=detection.type,
             bbox=detection.bbox,
             confidence=detection.confidence,
-            paired_id=detection.paired_id
+            paired_id=detection.paired_id,
         )
 
     def _to_emotion_payload(self, emotion: EmotionResult) -> EmotionPayload:
@@ -566,7 +586,7 @@ class Pipeline:
             detection_id=emotion.detection_id,
             probabilities=emotion.probabilities,
             dominant_emotion=emotion.dominant_emotion,
-            confidence=emotion.confidence
+            confidence=emotion.confidence,
         )
 
     async def _notify_status(self) -> None:
@@ -576,7 +596,8 @@ class Pipeline:
                 timestamp=time.time(),
                 pipeline_state=self._state.value,
                 source_info=self._source_manager.source_info.to_dict()
-                if self._source_manager.source_info else None
+                if self._source_manager.source_info
+                else None,
             )
             await self._on_status_callback(status_msg)
 
@@ -590,15 +611,12 @@ class Pipeline:
                 timestamp=time.time(),
                 fps=round(fps, 1),
                 latency_ms=round(self._latency_ms, 1),
-                detection_count=self._frame_count
+                detection_count=self._frame_count,
             )
             await self._on_stats_callback(stats_msg)
 
     async def _notify_event(
-        self,
-        name: str,
-        reason: str | None = None,
-        frame_id: int | None = None
+        self, name: str, reason: str | None = None, frame_id: int | None = None
     ) -> None:
         """发送事件通知（EOS等生命周期事件）"""
         if self._on_event_callback:
@@ -606,7 +624,7 @@ class Pipeline:
                 timestamp=time.time(),
                 name=name,  # type: ignore
                 reason=reason,  # type: ignore
-                frame_id=frame_id
+                frame_id=frame_id,
             )
             await self._on_event_callback(event_msg)
             logger.info(f"发送事件: {name}, reason={reason}, frame_id={frame_id}")
@@ -656,7 +674,7 @@ class Pipeline:
         # 如果有当前源的信息（视频或图像），获取第一帧并发送预览
         if self._source_manager.source_info and self._on_frame_callback:
             source_info = self._source_manager.source_info
-            if source_info.source_type in ['image', 'video']:
+            if source_info.source_type in ["image", "video"]:
                 # 获取第一帧作为预览
                 first_frame = self._source_manager.get_first_frame()
                 if first_frame is not None:
@@ -669,7 +687,7 @@ class Pipeline:
                         frame_id=0,  # 预览帧ID为0
                         image=image_base64,
                         detections=[],  # 空检测列表
-                        emotions=[]     # 空情绪列表
+                        emotions=[],  # 空情绪列表
                     )
 
                     # 发送预览帧
@@ -681,7 +699,7 @@ class Pipeline:
         on_binary_frame=None,
         on_stats=None,
         on_status=None,
-        on_event=None
+        on_event=None,
     ) -> None:
         """
         设置回调函数

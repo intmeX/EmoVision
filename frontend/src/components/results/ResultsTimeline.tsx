@@ -20,14 +20,13 @@ import { useResultsStore, useFrameIndex, useFrameEmotions } from '@/store';
  * 情绪颜色映射
  */
 const EMOTION_COLORS: Record<string, string> = {
-  happy: '#22c55e',      // green-500
-  sad: '#3b82f6',        // blue-500
-  angry: '#ef4444',      // red-500
-  fear: '#a855f7',       // purple-500
-  surprise: '#f59e0b',   // amber-500
-  disgust: '#84cc16',    // lime-500
-  neutral: '#6b7280',    // gray-500
-  contempt: '#f97316',   // orange-500
+  '开心': '#22c55e',      // green-500
+  '悲伤': '#3b82f6',      // blue-500
+  '愤怒': '#ef4444',      // red-500
+  '恐惧': '#a855f7',      // purple-500
+  '惊讶': '#f59e0b',      // amber-500
+  '厌恶': '#84cc16',      // lime-500
+  '中性': '#6b7280',      // gray-500
 };
 
 /**
@@ -35,7 +34,7 @@ const EMOTION_COLORS: Record<string, string> = {
  */
 function getEmotionColor(emotion: string | null): string {
   if (!emotion) return '#374151'; // gray-700
-  return EMOTION_COLORS[emotion.toLowerCase()] ?? '#374151';
+  return EMOTION_COLORS[emotion] ?? '#374151';
 }
 
 /**

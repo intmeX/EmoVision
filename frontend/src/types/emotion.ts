@@ -1,13 +1,13 @@
 // 情绪相关类型
 
 export type EmotionLabel = 
-  | 'happy' 
-  | 'sad' 
-  | 'angry' 
-  | 'fear' 
-  | 'surprise' 
-  | 'disgust' 
-  | 'neutral'
+  | '开心' 
+  | '悲伤' 
+  | '愤怒' 
+  | '恐惧' 
+  | '惊讶' 
+  | '厌恶' 
+  | '中性'
   | string;
 
 export interface EmotionResult {
@@ -19,13 +19,13 @@ export interface EmotionResult {
 
 // 情绪颜色映射
 export const EMOTION_COLORS: Record<string, string> = {
-  happy: '#22c55e',
-  sad: '#3b82f6',
-  angry: '#ef4444',
-  fear: '#a855f7',
-  surprise: '#f59e0b',
-  disgust: '#84cc16',
-  neutral: '#6b7280',
+  '开心': '#22c55e',
+  '悲伤': '#3b82f6',
+  '愤怒': '#ef4444',
+  '恐惧': '#a855f7',
+  '惊讶': '#f59e0b',
+  '厌恶': '#84cc16',
+  '中性': '#6b7280',
 };
 
 export function getEmotionColor(emotion: string): string {
