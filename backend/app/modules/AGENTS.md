@@ -1,53 +1,21 @@
-# Processing Modules
+# ML Processing Modules
 
-Pluggable detector, recognizer, and visualizer modules.
+Core ML processing nodes for the EmoVision pipeline.
 
 ## Structure
-```
-modules/
-├── detector/      # Face/body detection (YOLO11)
-├── recognizer/    # Emotion recognition (multiple models)
-├── visualizer/    # Frame rendering with bounding boxes
-└── base.py        # Base module interface
-```
+- `detector/`: Face and body detection models (YOLO11).
+- `recognizer/`: Emotion recognition implementations.
+- `visualizer/`: Frame rendering with bounding boxes and labels.
 
-## Where to Look
+## Device Management
+- Use `app/utils/device.py` for CPU/GPU detection and tensor movements.
+- Never hardcode "cuda" or "cpu" in module logic.
 
-| Task | Location |
-|------|----------|
-| Add detector | `detector/` - inherit `BaseDetector` |
-| Add recognizer | `recognizer/` - inherit `BaseEmotionRecognizer` |
-| Change visualization | `visualizer/frame_renderer.py` |
-| Define detection schema | `detector/schemas.py` |
-| Define emotion schema | `recognizer/schemas.py` |
+## Processing Pattern
+- Wrap CPU/GPU-bound tasks with `run_in_background` or `run_in_executor` to prevent event loop blocking.
 
-## Module Pattern
-
-All modules inherit from `BaseModule` and implement:
-- `configure(config)` — Update module settings
-- `process(frame, ...)` — Main processing logic (sync or async)
-
-**Detector**: `YOLODetector` wraps ultralytics YOLO11
-**Recognizer**: Multiple implementations (CAER, DDEN, Emotic, Mock)
-**Visualizer**: `FrameRenderer` draws boxes/labels with OpenCV
-
-## Conventions
-
-- **Sync Processing**: CPU-bound work (OpenCV, ML inference) runs in executor
-- **Schemas**: Each module has `schemas.py` for config/output models
-- **Model Loading**: Lazy load in `configure()`, not `__init__()`
-- **Error Handling**: Return empty results on failure, log errors
-
-## Critical
-
-**Recognizer Matching**
-```python
-# Match detections to recognitions by IoU
-from app.modules.recognizer.matching import match_detections_to_emotions
-```
-
-**Preprocessing**
-```python
-# Use module-specific preprocessing
-from app.modules.recognizer.preprocessing import preprocess_for_caer
-```
+## Development Rules
+- Keep ML logic separated by domain (detection vs recognition).
+- Subclass base interfaces for new model integrations.
+- Fail gracefully on inference errors; return empty results instead of crashing the pipeline.
+- Initialize models lazily during configuration, not in `__init__`.
