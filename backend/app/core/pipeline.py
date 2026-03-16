@@ -21,6 +21,7 @@ from ..modules.recognizer import (
     EmotionResult,
     MockEmotionRecognizer,
 )
+from ..modules.temporal import FaceTracker
 from ..modules.visualizer import FrameRenderer
 from ..schemas.pipeline import PipelineConfig, RecognizerType
 from ..schemas.websocket import (
@@ -77,6 +78,7 @@ class Pipeline:
         self._detector: Optional[BaseDetector] = None
         self._recognizer: Optional[BaseEmotionRecognizer] = None
         self._renderer: Optional[FrameRenderer] = None
+        self._tracker: Optional[FaceTracker] = None  # 时序跟踪器
 
         # 推理线程池（用于将CPU密集任务移出事件循环）
         self._inference_executor: Optional[ThreadPoolExecutor] = None
@@ -134,6 +136,10 @@ class Pipeline:
         # 初始化渲染器
         self._renderer = FrameRenderer(self._config.visualizer)
 
+        # 初始化时序跟踪器
+        self._tracker = FaceTracker()
+        logger.info("时序跟踪器已初始化")
+
         # 初始化推理线程池
         if self._use_async_inference:
             self._inference_executor = ThreadPoolExecutor(
@@ -180,6 +186,10 @@ class Pipeline:
 
         if self._recognizer:
             self._recognizer.cleanup()
+
+        # 重置跟踪器
+        if self._tracker:
+            self._tracker.reset()
 
         # 取消待处理的编码任务
         if self._pending_encode is not None:
@@ -343,7 +353,17 @@ class Pipeline:
                 self._inference_executor, self._recognizer.predict, frame, detections
             )
 
-            # 3. 异步执行渲染和编码
+            # 3. 应用时序跟踪和平滑
+            if self._tracker:
+                detections, emotions = await loop.run_in_executor(
+                    self._inference_executor,
+                    self._tracker.update,
+                    detections,
+                    emotions,
+                    (frame.shape[0], frame.shape[1]),
+                )
+
+            # 4. 异步执行渲染和编码
             rendered_frame, image_data = await loop.run_in_executor(
                 self._inference_executor,
                 self._render_and_encode,
@@ -355,6 +375,13 @@ class Pipeline:
             # 同步推理（原有逻辑）
             detections = self._detector.detect(frame)
             emotions = self._recognizer.predict(frame, detections)
+
+            # 应用时序跟踪和平滑
+            if self._tracker:
+                detections, emotions = self._tracker.update(
+                    detections, emotions, (frame.shape[0], frame.shape[1])
+                )
+
             rendered_frame = self._renderer.render(frame, detections, emotions)
             image_data = None  # 稍后编码
 
@@ -467,6 +494,16 @@ class Pipeline:
         emotions = await loop.run_in_executor(
             self._inference_executor, self._recognizer.predict, frame, detections
         )
+
+        # 3. 应用时序跟踪和平滑
+        if self._tracker:
+            detections, emotions = await loop.run_in_executor(
+                self._inference_executor,
+                self._tracker.update,
+                detections,
+                emotions,
+                (frame.shape[0], frame.shape[1]),
+            )
 
         # 更新统计
         elapsed = (time.perf_counter() - start_time) * 1000
