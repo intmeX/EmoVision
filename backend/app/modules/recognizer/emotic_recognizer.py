@@ -2,7 +2,6 @@
 SEEmoticQuadrupleStream 情绪识别器
 
 基于四流融合模型的多标签情绪识别，使用全图、身体区域和人脸区域，
-输出 Emotic 数据集定义的 26 类情绪标签的 logits（多标签分类）。
 """
 
 import time
@@ -56,6 +55,64 @@ EMOTIC_LABELS = [
 # 多标签分类的激活阈值
 MULTI_LABEL_THRESHOLD = 0.5
 
+# DDEN 标准输出顺序
+DDEN_LABELS = ["开心", "悲伤", "愤怒", "恐惧", "惊讶", "厌恶", "中性"]
+
+# Emotic 26类 → DDEN 7类映射表
+# 多个 Emotic 标签可映射到同一 DDEN 类别
+# 置信度融合公式：1 - (1-c1)(1-c2)...
+_EMOTIC_TO_DDEN: dict[str, str] = {
+    "喜爱": "开心",
+    "兴奋": "开心",
+    "快乐": "开心",
+    "愉悦": "开心",
+    "自信": "开心",
+    "期待": "开心",
+    "悲伤": "悲伤",
+    "痛苦": "悲伤",
+    "受苦": "悲伤",
+    "同情": "悲伤",
+    "渴望": "悲伤",
+    "愤怒": "愤怒",
+    "烦恼": "愤怒",
+    "不满": "愤怒",
+    "恐惧": "恐惧",
+    "不安": "恐惧",
+    "惊讶": "惊讶",
+    "厌恶": "厌恶",
+    "尴尬": "厌恶",
+    "困惑": "中性",
+    "疏离": "中性",
+    "平静": "中性",
+    "尊重": "中性",
+    "敏感": "中性",
+    "疲惫": "中性",
+    "投入": "中性",
+}
+
+
+def _map_emotic_to_dden(emotic_probs: dict[str, float]) -> dict[str, float]:
+    """将 Emotic 26类概率映射到 DDEN 7类"""
+    dden_complement: dict[str, float] = {label: 0.0 for label in DDEN_LABELS}
+    for emotic_label, prob in emotic_probs.items():
+        dden_label = _EMOTIC_TO_DDEN.get(emotic_label)
+        if dden_label is not None:
+            dden_complement[dden_label] += prob
+    return {label: round(dden_complement[label], 4) for label in DDEN_LABELS}
+
+
+def _extract_context_attention(
+    attention_batch: dict[str, torch.Tensor] | None, index: int
+) -> dict[str, float] | None:
+    """提取单样本上下文注意力得分。"""
+    if attention_batch is None:
+        return None
+
+    return {
+        key: round(float(value[index].item()), 4)
+        for key, value in attention_batch.items()
+    }
+
 
 class EmoticRecognizer(BaseEmotionRecognizer):
     """
@@ -84,7 +141,7 @@ class EmoticRecognizer(BaseEmotionRecognizer):
         self._device: torch.device = torch.device("cpu")
         self._labels = EMOTIC_LABELS
 
-    def load_model(self, model_path: str = None) -> None:
+    def load_model(self, model_path: str | None = None) -> None:
         """
         加载 SEEmoticQuadrupleStream 模型
 
@@ -97,13 +154,20 @@ class EmoticRecognizer(BaseEmotionRecognizer):
         self._model.to(self._device)
 
         if model_path:
-            from ....models.weight_utils import load_weights_init
+            from models.weight_utils import load_weights_init
 
-            load_weights_init(self._model, model_path)
-            logger.info(f"Emotic 权重已加载: {model_path}")
+            load_stats = load_weights_init(self._model, model_path)
+            logger.info(
+                f"Emotic 权重已加载: {model_path}",
+            )
+            if load_stats["missing_keys"] or load_stats["skipped_keys"]:
+                logger.warning(
+                    f"Emotic 权重存在部分未匹配参数: missing={len(load_stats['missing_keys'])}, skipped={len(load_stats['skipped_keys'])}"
+                )
 
         self._model.eval()
         logger.info(f"Emotic 识别器初始化完成，设备: {self._device}")
+        self.flag = 0
 
     def predict(
         self,
@@ -179,8 +243,10 @@ class EmoticRecognizer(BaseEmotionRecognizer):
         # 推理
         start = time.perf_counter()
         with torch.no_grad():
-            logits = self._model(ctx_batch, body_batch, face_batch)  # (B, 26)
-            probs = torch.sigmoid(logits)  # 多标签用 sigmoid
+            logits, context_attention_batch = self._model(
+                ctx_batch, body_batch, face_batch
+            )
+            probs = torch.sigmoid(logits)
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.debug(
@@ -191,11 +257,33 @@ class EmoticRecognizer(BaseEmotionRecognizer):
         probs_np = probs.cpu().numpy()
         results: List[EmotionResult] = []
 
+        if self.flag == 0 and probs_np.shape[0] > 1:
+            self.flag += 1
+            logger.info(f"Emotic 模型输出维度: {probs_np.shape}")
+            logger.info(f"{probs_np}")
+
+
         for i, face in enumerate(matched_faces):
-            prob_dict = {
-                label: round(float(probs_np[i, j]), 4)
+            # 原始 26 类 sigmoid 概率
+            # prob_norm = np.exp(probs_np[i]) / np.sum(np.exp(probs_np[i]))
+            # prob_norm = probs_np[i] / np.sum(probs_np[i])
+            prob_norm = probs_np[i]
+            emotic_probs = {
+                label: round(float(prob_norm[j]), 4)
                 for j, label in enumerate(self._labels)
             }
+            # 映射到 DDEN 7 类
+            prob_dict = _map_emotic_to_dden(emotic_probs)
+            prob_sum = sum(prob_dict.values())
+            if prob_sum > 0:
+                for label, prob in prob_dict.items():
+                    prob_dict[label] = prob / prob_sum
+            else:
+                if self.flag == 1:
+                    logger.info(f"概率异常 (id: {i}): {prob_dict.values()}")
+                uniform_prob = 1.0 / len(DDEN_LABELS)
+                for label in prob_dict:
+                    prob_dict[label] = uniform_prob
             dominant = max(prob_dict, key=prob_dict.get)  # type: ignore[arg-type]
             results.append(
                 EmotionResult(
@@ -203,7 +291,14 @@ class EmoticRecognizer(BaseEmotionRecognizer):
                     probabilities=prob_dict,
                     dominant_emotion=dominant,
                     confidence=prob_dict[dominant],
+                    context_attention=_extract_context_attention(
+                        context_attention_batch, i
+                    ),
                 )
             )
+            if self.flag == 1:
+                logger.info(f"Emotic 映射到 DDEN 7 类(id: {i}): {prob_dict}")
+        if self.flag == 1 and probs_np.shape[0] > 1:
+            self.flag += 1
 
         return results

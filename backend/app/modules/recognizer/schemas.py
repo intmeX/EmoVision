@@ -10,6 +10,9 @@ class EmotionResult(BaseModel):
     probabilities: dict[str, float] = Field(..., description="各情绪类别的概率分布")
     dominant_emotion: str = Field(..., description="主导情绪类别")
     confidence: float = Field(..., ge=0.0, le=1.0, description="识别置信度")
+    context_attention: dict[str, float] | None = Field(
+        default=None, description="上下文注意力得分"
+    )
 
 
 class RecognitionResult(BaseModel):

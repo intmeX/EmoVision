@@ -8,7 +8,7 @@ import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -148,6 +148,10 @@ class Pipeline:
             )
             logger.info("异步推理已启用，线程池大小: 2")
 
+        # 新建流水线实例后，确保跟踪状态为空
+        if self._tracker:
+            self._tracker.reset()
+
         logger.info("流水线初始化完成")
 
     def _create_recognizer(self) -> BaseEmotionRecognizer:
@@ -167,10 +171,27 @@ class Pipeline:
             RecognizerType.CAER: CaerRecognizer,
         }
 
+        # 各识别器的默认权重路径
+        default_model_paths = {
+            RecognizerType.DDEN: './dden_checkpoint.pth',
+            RecognizerType.CAER: './checkpoint_caer.pth',
+            RecognizerType.EMOTIC: './checkpoint_emotic.pth',
+        }
+
         recognizer_cls = recognizer_map.get(recognizer_type)
         if recognizer_cls is None:
             logger.warning(f"未知识别器类型: {recognizer_type}，回退到 Mock")
             recognizer_cls = MockEmotionRecognizer
+
+        # 若当前 model_path 是其他识别器的默认路径（或为 None），则替换为本识别器的默认路径
+        all_default_paths = set(default_model_paths.values())
+        if config.model_path is None or config.model_path in all_default_paths:
+            default_path = default_model_paths.get(recognizer_type)
+            if default_path is not None and config.model_path != default_path:
+                from copy import copy
+                config = copy(config)
+                config.model_path = default_path
+                logger.info(f"使用默认权重路径: {default_path}")
 
         logger.info(f"创建识别器: {recognizer_type.value} ({recognizer_cls.__name__})")
         return recognizer_cls(config)
@@ -211,13 +232,24 @@ class Pipeline:
         Args:
             config: 新配置
         """
+        old_recognizer_type = self._config.recognizer.recognizer_type
         self._config = config
 
         if self._detector:
             self._detector.update_config(config.detector)
 
         if self._recognizer:
-            self._recognizer.update_config(config.recognizer)
+            # 若识别器类型变化，重建识别器实例
+            if config.recognizer.recognizer_type != old_recognizer_type:
+                logger.info(
+                    f"识别器类型变更: {old_recognizer_type.value} -> "
+                    f"{config.recognizer.recognizer_type.value}，重建识别器"
+                )
+                self._recognizer.cleanup()
+                self._recognizer = self._create_recognizer()
+                self._recognizer.initialize()
+            else:
+                self._recognizer.update_config(config.recognizer)
 
         if self._renderer:
             self._renderer.update_config(config.visualizer)
@@ -239,6 +271,10 @@ class Pipeline:
             and self._source_manager.source_info.source_type == "video"
         ):
             self._source_manager.seek(0)
+
+        # 每次开始新一轮处理前重置跟踪器，避免历史情绪融合污染相同视频的重跑结果
+        if self._tracker:
+            self._tracker.reset()
 
         self._state = PipelineState.RUNNING
         self._frame_count = 0
@@ -624,6 +660,7 @@ class Pipeline:
             probabilities=emotion.probabilities,
             dominant_emotion=emotion.dominant_emotion,
             confidence=emotion.confidence,
+            context_attention=emotion.context_attention,
         )
 
     async def _notify_status(self) -> None:
@@ -653,14 +690,17 @@ class Pipeline:
             await self._on_stats_callback(stats_msg)
 
     async def _notify_event(
-        self, name: str, reason: str | None = None, frame_id: int | None = None
+        self,
+        name: Literal["eos", "recording_started", "recording_stopped"],
+        reason: Literal["source_eof", "user_stop", "error"] | None = None,
+        frame_id: int | None = None,
     ) -> None:
         """发送事件通知（EOS等生命周期事件）"""
         if self._on_event_callback:
             event_msg = EventMessage(
                 timestamp=time.time(),
-                name=name,  # type: ignore
-                reason=reason,  # type: ignore
+                name=name,
+                reason=reason,
                 frame_id=frame_id,
             )
             await self._on_event_callback(event_msg)
@@ -690,6 +730,9 @@ class Pipeline:
         """停止流水线"""
         self._state = PipelineState.IDLE
         self._source_manager.stop()
+
+        if self._tracker:
+            self._tracker.reset()
 
         # 取消待处理的编码任务，防止旧帧在停止后被发送
         if self._pending_encode is not None:

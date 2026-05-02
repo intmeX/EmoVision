@@ -1,6 +1,7 @@
 // 配置相关类型
 
 export type ModelSize = 'n' | 's' | 'm' | 'l' | 'x';
+export type RecognizerType = 'dden' | 'caer' | 'emotic' | 'mock';
 
 export interface DetectorConfig {
   model_size: ModelSize;
@@ -10,14 +11,14 @@ export interface DetectorConfig {
   detect_face: boolean;
   detect_person: boolean;
   max_detections: number;
+  min_face_area_ratio: number;
 }
 
 export interface RecognizerConfig {
   model_path: string | null;
   emotion_labels: string[];
   batch_size: number;
-  use_face: boolean;
-  use_body: boolean;
+  recognizer_type: RecognizerType;
 }
 
 export interface VisualizerConfig {
@@ -25,6 +26,7 @@ export interface VisualizerConfig {
   show_person_box: boolean;
   show_emotion_label: boolean;
   show_confidence: boolean;
+  emotion_display_count: number;
   show_emotion_bar: boolean;
   box_color_by_emotion: boolean;
   font_scale: number;
@@ -61,19 +63,20 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     detect_face: true,
     detect_person: true,
     max_detections: 100,
+    min_face_area_ratio: 0,
   },
   recognizer: {
     model_path: null,
     emotion_labels: ['开心', '悲伤', '愤怒', '恐惧', '惊讶', '厌恶', '中性'],
     batch_size: 8,
-    use_face: true,
-    use_body: true,
+    recognizer_type: 'dden',
   },
   visualizer: {
     show_bounding_box: true,
     show_person_box: false,
     show_emotion_label: true,
     show_confidence: true,
+    emotion_display_count: 2,
     show_emotion_bar: true,
     box_color_by_emotion: true,
     font_scale: 0.8,

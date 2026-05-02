@@ -134,12 +134,12 @@ def _build_caption_model() -> tuple[int, nn.Module]:
 
 
 def build_emotic_quadruple_stream(
-    context_model: str = "resnet18",
-    body_model: str = "resnet18",
+    context_model: str = "resnet50",
+    body_model: str = "swin_t",
     face_model: str = "sfer",
-    fuse_r: int = 4,
-    fuse_l: int = 64,
-    fuse_2_layer: bool = False,
+    fuse_r: int = 1,
+    fuse_l: int = 128,
+    fuse_2_layer: bool = True,
 ) -> SEEmoticQuadrupleStream:
     """
     构建 SEEmoticQuadrupleStream 模型

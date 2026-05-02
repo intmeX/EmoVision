@@ -15,6 +15,7 @@ export interface EmotionResult {
   probabilities: Record<string, number>;
   dominant_emotion: string;
   confidence: number;
+  context_attention?: Record<string, number>;
 }
 
 // 情绪颜色映射

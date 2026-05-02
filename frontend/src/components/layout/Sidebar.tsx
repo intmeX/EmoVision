@@ -130,6 +130,9 @@ export function Sidebar() {
         </div>
       </div>
       
+      {/* 可滚动内容区 */}
+      <div className="flex-1 overflow-y-auto">
+
       {/* 视觉源选择 */}
       <div className="border-b border-border-primary">
         <button
@@ -214,9 +217,8 @@ export function Sidebar() {
          <ResultsControlSection />
        </div>
       
-       {/* 底部填充 */}
-       <div className="flex-1" />
-      
+      </div>{/* end 可滚动内容区 */}
+       
        {/* 设置入口 */}
        <div className="p-4 border-t border-border-primary">
          <button 

@@ -24,6 +24,28 @@ logger = get_logger(__name__)
 
 # CAER-S 7 类情绪标签（与模型输出顺序一致）
 CAER_LABELS = ["愤怒", "厌恶", "恐惧", "开心", "中性", "悲伤", "惊讶"]
+# CAER_LABELS = ["愤怒", "厌恶", "恐惧", "中性", "惊讶", "悲伤", "开心"]
+
+# DDEN 标准输出顺序（统一对齐目标）
+DDEN_LABELS = ["开心", "悲伤", "愤怒", "恐惧", "惊讶", "厌恶", "中性"]
+
+
+def _remap_to_dden(prob_dict: dict[str, float]) -> dict[str, float]:
+    """将 prob_dict 重排为 DDEN_LABELS 顺序（标签不变，只是重排键顺序）。"""
+    return {label: prob_dict[label] for label in DDEN_LABELS if label in prob_dict}
+
+
+def _extract_context_attention(
+    attention_batch: dict[str, torch.Tensor] | None, index: int
+) -> dict[str, float] | None:
+    """提取单样本上下文注意力得分。"""
+    if attention_batch is None:
+        return None
+
+    return {
+        key: round(float(value[index].item()), 4)
+        for key, value in attention_batch.items()
+    }
 
 
 class CaerRecognizer(BaseEmotionRecognizer):
@@ -50,7 +72,7 @@ class CaerRecognizer(BaseEmotionRecognizer):
         self._device: torch.device = torch.device("cpu")
         self._labels = CAER_LABELS
 
-    def load_model(self, model_path: str = None) -> None:
+    def load_model(self, model_path: str | None = None) -> None:
         """
         加载 CaerMultiStream 模型
 
@@ -65,8 +87,14 @@ class CaerRecognizer(BaseEmotionRecognizer):
         if model_path:
             from models.weight_utils import load_weights_init
 
-            load_weights_init(self._model, model_path)
-            logger.info(f"CAER 权重已加载: {model_path}")
+            load_stats = load_weights_init(self._model, model_path)
+            logger.info(
+                f"CAER 权重已加载: {model_path}",
+            )
+            if load_stats["missing_keys"] or load_stats["skipped_keys"]:
+                logger.warning(
+                    f"CAER 权重存在部分未匹配参数: missing={len(load_stats['missing_keys'])}, skipped={len(load_stats['skipped_keys'])}",
+                )
 
         self._model.eval()
         logger.info(f"CAER 识别器初始化完成，设备: {self._device}")
@@ -113,7 +141,7 @@ class CaerRecognizer(BaseEmotionRecognizer):
         # 推理
         start = time.perf_counter()
         with torch.no_grad():
-            logits = self._model(ctx_batch, face_batch)  # (B, 7)
+            logits, context_attention_batch = self._model(ctx_batch, face_batch)
             probs = torch.softmax(logits, dim=1)
 
         elapsed_ms = (time.perf_counter() - start) * 1000
@@ -130,6 +158,8 @@ class CaerRecognizer(BaseEmotionRecognizer):
                 label: round(float(probs_np[i, j]), 4)
                 for j, label in enumerate(self._labels)
             }
+            # 重排到 DDEN 标准顺序
+            # prob_dict = _remap_to_dden(prob_dict)
             dominant = max(prob_dict, key=prob_dict.get)  # type: ignore[arg-type]
             results.append(
                 EmotionResult(
@@ -137,7 +167,12 @@ class CaerRecognizer(BaseEmotionRecognizer):
                     probabilities=prob_dict,
                     dominant_emotion=dominant,
                     confidence=prob_dict[dominant],
+                    context_attention=_extract_context_attention(
+                        context_attention_batch, i
+                    ),
                 )
             )
 
+        # if results:
+        #     logger.info(f"CAER 识别完成: {len(results)} 张人脸, 注意力：{results[0].context_attention}")
         return results

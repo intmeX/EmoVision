@@ -143,14 +143,16 @@ class FaceTracker:
         Returns:
             (跟踪后的检测, 跟踪后的情绪)
         """
-        # 只跟踪人脸
+        # 只跟踪人脸，人体框直接透传
         face_detections = [d for d in detections if d.type == DetectionType.FACE]
+        person_detections = [d for d in detections if d.type == DetectionType.PERSON]
 
         if not face_detections:
             # 所有轨迹标记为未更新
             for track in self.tracks.values():
                 track.update_age(matched=False)
-            return [], []
+            # 人体框直接透传，不做跟踪平滑
+            return person_detections, []
 
         # 匹配现有轨迹
         matched_tracks = {}
@@ -224,6 +226,9 @@ class FaceTracker:
         for track_id in self.tracks:
             if track_id not in matched_tracks:
                 self.tracks[track_id].update_age(matched=False)
+
+        # 人体框直接透传（不做跟踪平滑）
+        tracked_detections.extend(person_detections)
 
         return tracked_detections, tracked_emotions
 
@@ -362,6 +367,7 @@ class FaceTracker:
             probabilities=fused_prob_dict,
             dominant_emotion=stable_label,
             confidence=stable_score,
+            context_attention=emotion.context_attention,
         )
 
     def _cleanup_stale_tracks(self) -> None:

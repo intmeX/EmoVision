@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     
     # CORS配置
     cors_origins: list[str] = Field(
-        default=["http://localhost:5173", "http://127.0.0.1:5173"],
+        default=["http://localhost:5173", "http://127.0.0.1:5173", "http://100.90.218.40:5173"],
         description="允许的跨域来源"
     )
     

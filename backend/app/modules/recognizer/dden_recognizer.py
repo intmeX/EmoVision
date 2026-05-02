@@ -48,7 +48,7 @@ class DDENRecognizer(BaseEmotionRecognizer):
         self._device: torch.device = torch.device("cpu")
         self._labels = RAFDB_LABELS
 
-    def load_model(self, model_path: str = None) -> None:
+    def load_model(self, model_path: str | None = None) -> None:
         """
         加载 SDDENFPN 模型
 
@@ -65,9 +65,15 @@ class DDENRecognizer(BaseEmotionRecognizer):
         if model_path:
             from models.weight_utils import load_weights_init, weights_frozen
 
-            load_weights_init(self._model, model_path)
+            load_stats = load_weights_init(self._model, model_path)
             weights_frozen(self._model)
-            logger.info(f"SDDENFPN 权重已加载: {model_path}")
+            logger.info(
+                f"SDDENFPN 权重已加载: {model_path}",
+            )
+            if load_stats["missing_keys"] or load_stats["skipped_keys"]:
+                logger.warning(
+                    f"SDDENFPN 权重存在部分未匹配参数: missing={len(load_stats['missing_keys'])}, skipped={len(load_stats['skipped_keys'])}",
+                )
 
         self._model.eval()
         logger.info(f"SDDENFPN 识别器初始化完成，设备: {self._device}")

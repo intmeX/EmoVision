@@ -3,12 +3,19 @@
 import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useConfigStore } from '../../store';
+import type { RecognizerType } from '../../types';
+
+const RECOGNIZER_OPTIONS: { value: RecognizerType; label: string; description: string }[] = [
+  { value: 'dden', label: 'DDEN', description: '单流人脸识别，速度最快' },
+  { value: 'caer', label: 'CAER', description: '多流融合（背景+人脸+语义）' },
+  { value: 'emotic', label: 'EMOTIC', description: '四流融合（背景+身体+人脸+语义）' },
+];
 
 export function RecognizerConfig() {
   const { config, updateRecognizer } = useConfigStore();
   const recognizer = config.recognizer;
   const [newLabel, setNewLabel] = useState('');
-  
+
   const addLabel = () => {
     if (newLabel.trim() && !recognizer.emotion_labels.includes(newLabel.trim())) {
       updateRecognizer({
@@ -17,15 +24,31 @@ export function RecognizerConfig() {
       setNewLabel('');
     }
   };
-  
+
   const removeLabel = (label: string) => {
     updateRecognizer({
       emotion_labels: recognizer.emotion_labels.filter((l) => l !== label),
     });
   };
-  
+
   return (
     <div className="space-y-4">
+      {/* 识别器类型 */}
+      <div>
+        <label className="label">识别算法</label>
+        <select
+          value={recognizer.recognizer_type}
+          onChange={(e) => updateRecognizer({ recognizer_type: e.target.value as RecognizerType })}
+          className="input w-full"
+        >
+          {RECOGNIZER_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label} — {opt.description}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* 情绪标签管理 */}
       <div>
         <label className="label">情绪类别标签</label>
@@ -59,9 +82,9 @@ export function RecognizerConfig() {
           </button>
         </div>
       </div>
-      
-      {/* 其他配置 */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+
+      {/* 批处理大小 */}
+      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="label">批处理大小</label>
           <input
@@ -72,32 +95,6 @@ export function RecognizerConfig() {
             onChange={(e) => updateRecognizer({ batch_size: Number(e.target.value) })}
             className="input"
           />
-        </div>
-        
-        <div className="flex items-center gap-2 pt-6">
-          <input
-            type="checkbox"
-            id="use_face"
-            checked={recognizer.use_face}
-            onChange={(e) => updateRecognizer({ use_face: e.target.checked })}
-            className="w-4 h-4 rounded bg-bg-tertiary border-border-primary"
-          />
-          <label htmlFor="use_face" className="text-sm text-gray-300">
-            使用人脸特征
-          </label>
-        </div>
-        
-        <div className="flex items-center gap-2 pt-6">
-          <input
-            type="checkbox"
-            id="use_body"
-            checked={recognizer.use_body}
-            onChange={(e) => updateRecognizer({ use_body: e.target.checked })}
-            className="w-4 h-4 rounded bg-bg-tertiary border-border-primary"
-          />
-          <label htmlFor="use_body" className="text-sm text-gray-300">
-            使用身体特征
-          </label>
         </div>
       </div>
     </div>

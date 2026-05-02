@@ -22,6 +22,9 @@ class EmotionPayload(BaseModel):
     probabilities: dict[str, float] = Field(..., description="各情绪类别概率")
     dominant_emotion: str = Field(..., description="主导情绪")
     confidence: float = Field(..., description="置信度")
+    context_attention: dict[str, float] | None = Field(
+        default=None, description="上下文注意力得分"
+    )
 
 
 class FrameMessage(BaseModel):

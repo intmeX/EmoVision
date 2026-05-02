@@ -127,6 +127,28 @@ export function DetectorConfig() {
           <span className="text-sm text-gray-300">检测人体</span>
         </label>
       </div>
+
+      {/* 面部框占比过滤 */}
+      <div>
+        <label className="label">
+          面部框最小占比：{(detector.min_face_area_ratio * 100).toFixed(1)}%
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min="0"
+            max="0.2"
+            step="0.001"
+            value={detector.min_face_area_ratio}
+            onChange={(e) => updateDetector({ min_face_area_ratio: Number(e.target.value) })}
+            className="flex-1"
+          />
+          <span className="text-xs text-gray-500 w-12 text-right">
+            {(detector.min_face_area_ratio * 100).toFixed(1)}%
+          </span>
+        </div>
+        <div className="text-xs text-gray-600 mt-1">低于此占比的人脸框将被过滤</div>
+      </div>
     </div>
   );
 }

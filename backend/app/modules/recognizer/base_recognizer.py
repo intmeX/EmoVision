@@ -38,7 +38,7 @@ class BaseEmotionRecognizer(BaseModule[RecognizerConfig]):
         return self._config.emotion_labels
 
     @abstractmethod
-    def load_model(self, model_path: str = None) -> None:
+    def load_model(self, model_path: str | None = None) -> None:
         """
         加载情绪识别模型
 

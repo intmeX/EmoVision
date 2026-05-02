@@ -134,6 +134,12 @@ class YOLODetector(BaseDetector):
                             self._config.detect_face
                             and conf >= self._config.face_confidence_threshold
                         ):
+                            # 面积占比过滤
+                            frame_area = frame.shape[0] * frame.shape[1]
+                            bbox_area = bbox.area
+                            area_ratio = bbox_area / frame_area if frame_area > 0 else 0.0
+                            if area_ratio < self._config.min_face_area_ratio:
+                                continue
                             detection = Detection(
                                 id=self._next_id(),
                                 type=DetectionType.FACE,

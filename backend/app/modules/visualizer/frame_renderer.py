@@ -123,8 +123,19 @@ class FrameRenderer:
             emotion_map = {e.detection_id: e for e in emotions}
 
         # 绘制检测结果
+        face_index = 0
         for detection in detections:
-            self._draw_detection(rendered, detection, emotion_map.get(detection.id))
+            current_face_index = None
+            if detection.type == DetectionType.FACE:
+                face_index += 1
+                current_face_index = face_index
+            
+            self._draw_detection(
+                rendered, 
+                detection, 
+                emotion_map.get(detection.id),
+                face_index=current_face_index
+            )
 
         return rendered
 
@@ -133,6 +144,7 @@ class FrameRenderer:
         frame: np.ndarray,
         detection: Detection,
         emotion: Optional[EmotionResult] = None,
+        face_index: Optional[int] = None,
     ) -> None:
         """
         绘制单个检测结果
@@ -141,6 +153,7 @@ class FrameRenderer:
             frame: 图像帧
             detection: 检测结果
             emotion: 情绪识别结果 (可选)
+            face_index: 面部索引 (可选)
         """
         bbox = detection.bbox
         x1, y1, x2, y2 = int(bbox.x), int(bbox.y), int(bbox.x2), int(bbox.y2)
@@ -154,12 +167,45 @@ class FrameRenderer:
             # 根据检测类型使用默认颜色
             color = (0, 255, 0) if detection.type == DetectionType.FACE else (255, 0, 0)
 
-        # 绘制边界框（person 框受 show_person_box 控制）
-        if self._config.show_bounding_box:
-            if (
-                detection.type == DetectionType.PERSON
-                and not self._config.show_person_box
-            ):
+        # 绘制边界框：面部框受 show_bounding_box 控制，人体框受 show_person_box 控制
+        if detection.type == DetectionType.FACE:
+            if not self._config.show_bounding_box:
+                pass  # 不绘制面部框，但继续绘制标签
+            else:
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, self._config.box_thickness)
+                
+                # 绘制面部索引数字 (1, 2, 3...) 到右下角
+                if face_index is not None:
+                    text = str(face_index)
+                    # 获取文本尺寸
+                    bbox = self._font.getbbox(text)
+                    tw = int(bbox[2] - bbox[0])
+                    th = int(bbox[3] - bbox[1])
+                    
+                    # 计算位置 (右下角，留2像素边距)
+                    tx = x2 - tw - 2
+                    ty = y2 - th - 2 - bbox[1] # 考虑 baseline
+                    
+                    # 确保不超出画面
+                    frame_h, frame_w = frame.shape[:2]
+                    tx = max(0, min(frame_w - tw, tx))
+                    ty = max(0, min(frame_h - th, ty))
+                    
+                    # 使用 PIL 绘制（透明背景，黑色文字）
+                    # 确定 ROI
+                    roi_x1, roi_y1 = int(tx), int(ty + bbox[1])
+                    roi_x2, roi_y2 = int(tx + tw), int(ty + th + bbox[1])
+                    
+                    if 0 <= roi_x1 < frame_w and 0 <= roi_y1 < frame_h:
+                        roi = frame[roi_y1:roi_y2, roi_x1:roi_x2]
+                        pil_roi = Image.fromarray(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+                        draw = ImageDraw.Draw(pil_roi)
+                        draw.text((0, -bbox[1]), text, font=self._font, fill=(0, 0, 0))
+                        frame[roi_y1:roi_y2, roi_x1:roi_x2] = cv2.cvtColor(
+                            np.array(pil_roi), cv2.COLOR_RGB2BGR
+                        )
+        elif detection.type == DetectionType.PERSON:
+            if not self._config.show_person_box:
                 return  # 跳过 person 框及其标签
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, self._config.box_thickness)
 
@@ -183,73 +229,105 @@ class FrameRenderer:
         color: Tuple[int, int, int],
     ) -> None:
         """
-        绘制情绪标签（使用PIL支持中文渲染）
-
-        当标签放在框上方会超出帧边界时，自动改为放在框内部顶端。
+        绘制多级情绪标签（使用PIL支持中文渲染，透明背景）
 
         Args:
             frame: 图像帧
             x, y: 边界框左上角坐标
             y2: 边界框底部 y 坐标
             emotion: 情绪识别结果
-            color: 标签颜色 (BGR)
+            color: 标签主颜色 (BGR) - 当前主要由边框逻辑决定，各标签使用各自颜色
         """
         frame_h, frame_w = frame.shape[:2]
 
-        # 构建标签文本
-        parts: List[str] = []
-        if self._config.show_emotion_label:
-            parts.append(emotion.dominant_emotion)
-        if self._config.show_confidence:
-            parts.append(f"{emotion.confidence:.2f}")
+        # 1. 准备要绘制的所有标签数据
+        display_count = getattr(self._config, "emotion_display_count", 2)
+        sorted_emotions = sorted(
+            emotion.probabilities.items(), key=lambda x: x[1], reverse=True
+        )[:display_count]
 
-        label = " ".join(parts)
-
-        # 使用 PIL 测量文本尺寸
-        bbox = self._font.getbbox(label)
-        text_width = int(bbox[2] - bbox[0])
-        text_height = int(bbox[3] - bbox[1])
-
+        labels_data = []
+        max_text_width = 0
+        total_stack_height = 0
         padding = 4
-        label_h = text_height + padding * 2
 
-        # 默认放在框上方；空间不足时放到框内部顶端
-        if y - label_h >= 0:
-            bg_y1 = y - label_h
-            bg_y2 = y
+        for i, (emotion_label, prob) in enumerate(sorted_emotions):
+            parts: List[str] = []
+            if self._config.show_emotion_label:
+                parts.append(emotion_label)
+            if self._config.show_confidence:
+                parts.append(f"{prob:.2f}")
+
+            if not parts:
+                continue
+
+            text = " ".join(parts)
+            # 使用 PIL 测量文本尺寸
+            bbox = self._font.getbbox(text)
+            tw = int(bbox[2] - bbox[0])
+            th = int(bbox[3] - bbox[1])
+
+            # 获取颜色 (从缓存中获取 BGR 并转换为 RGB 用于 PIL)
+            bgr = self._emotion_color_cache.get(emotion_label, self._default_color)
+            rgb = (bgr[2], bgr[1], bgr[0])
+
+            label_h = th + padding * 2
+            
+            labels_data.append({
+                "text": text,
+                "rgb": rgb,
+                "tw": tw,
+                "th": th,
+                "label_h": label_h,
+                "y_offset": bbox[1]
+            })
+
+            max_text_width = max(max_text_width, tw)
+            total_stack_height += label_h
+            if i < len(sorted_emotions) - 1:
+                total_stack_height += padding
+
+        if not labels_data:
+            return
+
+        # 2. 确定堆栈起始位置（基于第一个标签的逻辑：上方或内部顶端）
+        first_label_h = labels_data[0]["label_h"]
+        if y - first_label_h >= 0:
+            stack_y_start = y - first_label_h
         else:
-            bg_y1 = y
-            bg_y2 = min(y + label_h, frame_h)
+            stack_y_start = y
 
-        # 水平方向：超出右边界时整体左移，超出左边界时右移
-        label_w = text_width + padding * 2
-        bg_x1 = x
-        if bg_x1 + label_w > frame_w:
-            bg_x1 = frame_w - label_w
-        bg_x1 = max(0, bg_x1)
-        bg_x2 = bg_x1 + label_w
+        # 水平方向：超出右边界时左移，超出左边界时右移
+        stack_w = max_text_width + padding * 2
+        stack_x_start = x
+        if stack_x_start + stack_w > frame_w:
+            stack_x_start = frame_w - stack_w
+        stack_x_start = max(0, stack_x_start)
 
-        # 绘制背景矩形（仍用 cv2，快速）
-        cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), color, -1)
-
-        # 使用 PIL 绘制文本（仅转换标签区域，避免全帧转换开销）
-        roi_x1 = max(0, bg_x1)
-        roi_y1 = max(0, bg_y1)
-        roi_x2 = min(frame_w, bg_x2)
-        roi_y2 = min(frame_h, bg_y2)
+        # 3. 确定绘制区域 (ROI)
+        roi_x1 = int(max(0, stack_x_start))
+        roi_y1 = int(max(0, stack_y_start))
+        roi_x2 = int(min(frame_w, stack_x_start + stack_w))
+        roi_y2 = int(min(frame_h, stack_y_start + total_stack_height))
 
         if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
             return
 
+        # 4. 使用 PIL 绘制文本（直接在 ROI 上绘制实现透明背景效果）
         roi = frame[roi_y1:roi_y2, roi_x1:roi_x2]
         pil_roi = Image.fromarray(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(pil_roi)
 
-        # 文本在 ROI 内的偏移
-        text_x = bg_x1 + padding - roi_x1
-        text_y = bg_y1 + padding - roi_y1 - bbox[1]
-        draw.text((text_x, text_y), label, font=self._font, fill=(255, 255, 255))
+        current_y_offset = 0
+        for item in labels_data:
+            # 文本在 ROI 内的相对偏移
+            text_x = int(stack_x_start + padding - roi_x1)
+            text_y = int(stack_y_start + current_y_offset + padding - roi_y1 - item["y_offset"])
 
+            draw.text((text_x, text_y), item["text"], font=self._font, fill=item["rgb"])
+            current_y_offset += item["label_h"] + padding
+
+        # 5. 写回 frame (RGB -> BGR)
         frame[roi_y1:roi_y2, roi_x1:roi_x2] = cv2.cvtColor(
             np.array(pil_roi), cv2.COLOR_RGB2BGR
         )
@@ -269,10 +347,11 @@ class FrameRenderer:
         bar_width = 120
         padding = 2
 
-        # 按概率排序
+        # 按概率排序，使用配置的显示数量
+        display_count = getattr(self._config, 'emotion_display_count', 2)
         sorted_emotions = sorted(
             emotion.probabilities.items(), key=lambda x: x[1], reverse=True
-        )[:3]  # 只显示前3个
+        )[:display_count]
 
         current_y = y + padding
 
@@ -314,4 +393,4 @@ class FrameRenderer:
         """
         encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
         _, buffer = cv2.imencode(".jpg", frame, encode_params)
-        return base64.b64encode(buffer).decode("utf-8")
+        return base64.b64encode(buffer.tobytes()).decode("utf-8")

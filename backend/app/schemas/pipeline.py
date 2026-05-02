@@ -43,6 +43,9 @@ class DetectorConfig(BaseModel):
     detect_face: bool = Field(default=True, description="是否检测人脸")
     detect_person: bool = Field(default=True, description="是否检测人体")
     max_detections: int = Field(default=100, ge=1, le=300, description="最大检测数量")
+    min_face_area_ratio: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="最小人脸面积占画面比例，低于此值的检测框将被过滤"
+    )
 
 
 class RecognizerConfig(BaseModel):
@@ -65,10 +68,12 @@ class RecognizerConfig(BaseModel):
 class VisualizerConfig(BaseModel):
     """可视化渲染器配置"""
 
-    show_bounding_box: bool = Field(default=True, description="显示边界框")
+    show_bounding_box: bool = Field(default=True, description="显示面部边界框")
     show_person_box: bool = Field(default=False, description="显示人体边界框")
     show_emotion_label: bool = Field(default=True, description="显示情绪标签")
     show_confidence: bool = Field(default=True, description="显示置信度")
+    emotion_display_count: int = Field(default=2, ge=1, le=7, description="显示情绪数量（1-7）")
+    show_emotion_bar: bool = Field(default=True, description="显示置信度")
     show_emotion_bar: bool = Field(default=False, description="显示情绪概率条")
     box_color_by_emotion: bool = Field(default=True, description="边框颜色按情绪变化")
     font_scale: float = Field(default=1.0, ge=0.1, le=3.0, description="字体大小")
